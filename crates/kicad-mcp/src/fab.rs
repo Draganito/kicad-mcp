@@ -151,12 +151,34 @@ fn kicad_cli_bin() -> PathBuf {
             return p;
         }
     }
+    // Debian's /usr/bin/kicad-cli is 9.x here and cannot load a board
+    // saved by the KiCad 10 AppImage. Prefer the running AppImage CLI.
+    if let Some(appimage) = appimage_kicad_cli() {
+        return appimage;
+    }
     let debian = PathBuf::from("/usr/bin/kicad-cli");
     if debian.is_file() {
         debian
     } else {
         PathBuf::from("kicad-cli")
     }
+}
+
+fn appimage_kicad_cli() -> Option<PathBuf> {
+    let tmp = Path::new("/tmp");
+    let mut found = Vec::new();
+    for entry in fs::read_dir(tmp).ok()?.flatten() {
+        let name = entry.file_name();
+        if !name.to_string_lossy().starts_with(".mount_kicad") {
+            continue;
+        }
+        let cli = entry.path().join("bin").join("kicad-cli");
+        if cli.is_file() {
+            found.push(cli);
+        }
+    }
+    found.sort();
+    found.pop()
 }
 
 fn run_kicad_cli(args: &[&str]) -> Result<(), String> {

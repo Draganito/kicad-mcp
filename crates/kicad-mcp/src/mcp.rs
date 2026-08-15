@@ -359,6 +359,34 @@ impl KicadMcp {
     }
 
     #[tool(
+        description = "Delete every copper zone on the open board (tracks, vias and footprints stay). One undo. Use this before re-pouring 5V/GND so new GND vias are not swallowed by an old 5V fill."
+    )]
+    async fn clear_zones(&self) -> Result<CallToolResult, McpError> {
+        if let Some(refusal) = self.require_write() {
+            return refusal;
+        }
+        with_kicad(self, |k| async move {
+            let ids = k.zone_ids().await?;
+            if ids.is_empty() {
+                return Ok(serde_json::json!({ "ok": true, "deleted": 0 }));
+            }
+            let session = k.begin_commit().await?;
+            match k.delete_ids(ids).await {
+                Ok(deleted) => {
+                    k.end_commit(session, "kicad-mcp clear zones").await?;
+                    let _ = k.refresh().await;
+                    Ok(serde_json::json!({ "ok": true, "deleted": deleted.len() }))
+                }
+                Err(e) => {
+                    let _ = k.drop_commit(session).await;
+                    Err(e)
+                }
+            }
+        })
+        .await
+    }
+
+    #[tool(
         description = "Draw the board outline on Edge.Cuts (that is KiCad's board size). Rectangle: width_mm/height_mm, origin = bottom-left (+y up); omit origin to centre on the A4 sheet. Polygon: points [{x_mm, y_mm}, ...] already in KiCad millimetres (closed automatically). replace defaults to true."
     )]
     async fn set_board_outline(
@@ -507,7 +535,8 @@ impl KicadMcp {
         }
         with_kicad(self, move |k| async move {
             let layer = crate::copper::parse_copper_layer(args.layer.as_deref())?;
-            let item = crate::copper::track_any(
+            let mut codes = board_net_codes(&k).await;
+            let item = crate::copper::track_any_coded(
                 args.a_x_mm,
                 args.a_y_mm,
                 args.b_x_mm,
@@ -515,6 +544,7 @@ impl KicadMcp {
                 args.width_mm,
                 layer,
                 &args.net,
+                codes.code_for(&args.net),
             )?;
             let session = k.begin_commit().await?;
             match k.create_items(vec![item]).await {
@@ -559,10 +589,12 @@ impl KicadMcp {
                     args.tracks.len()
                 ));
             }
+            let mut codes = board_net_codes(&k).await;
             let mut items = Vec::with_capacity(args.tracks.len());
             for t in &args.tracks {
                 let layer = crate::copper::parse_copper_layer(t.layer.as_deref())?;
-                items.push(crate::copper::track_any(
+                let code = codes.code_for(&t.net);
+                items.push(crate::copper::track_any_coded(
                     t.a_x_mm,
                     t.a_y_mm,
                     t.b_x_mm,
@@ -570,6 +602,7 @@ impl KicadMcp {
                     t.width_mm,
                     layer,
                     &t.net,
+                    code,
                 )?);
             }
             let n_req = items.len();
@@ -605,12 +638,14 @@ impl KicadMcp {
             return refusal;
         }
         with_kicad(self, move |k| async move {
-            let item = crate::copper::via_any(
+            let mut codes = board_net_codes(&k).await;
+            let item = crate::copper::via_any_coded(
                 args.x_mm,
                 args.y_mm,
                 &args.net,
                 args.drill_mm,
                 args.size_mm,
+                codes.code_for(&args.net),
             )?;
             let session = k.begin_commit().await?;
             match k.create_items(vec![item]).await {
@@ -656,14 +691,17 @@ impl KicadMcp {
                     args.vias.len()
                 ));
             }
+            let mut codes = board_net_codes(&k).await;
             let mut items = Vec::with_capacity(args.vias.len());
             for v in &args.vias {
-                items.push(crate::copper::via_any(
+                let code = codes.code_for(&v.net);
+                items.push(crate::copper::via_any_coded(
                     v.x_mm,
                     v.y_mm,
                     &v.net,
                     v.drill_mm,
                     v.size_mm,
+                    code,
                 )?);
             }
             let n_req = items.len();
@@ -689,6 +727,33 @@ impl KicadMcp {
     }
 
     #[tool(
+        description = "Place a stitching via + short F.Cu stub next to a pin, radially away from the part (Alladin-style). Single pin: reference+pin (net optional). Batch: net=\"GND\" stitches every SMD pad on that net that does not already have a same-net via nearby (max 250). Sweeps ±15°…±90° if the natural spot is blocked. Via and stub both refuse pads and tracks (a data line between pad and via skips that angle). Skip PTH/NPTH. 5V pours usually need no vias — use this for GND. drill_mm 0.3, size_mm 0.6, stub 0.25. One undo. Ctrl+Z undoes."
+    )]
+    async fn stitch_via(
+        &self,
+        Parameters(args): Parameters<StitchViaArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        if let Some(refusal) = self.require_write() {
+            return refusal;
+        }
+        with_kicad(self, move |k| async move {
+            crate::stitch::stitch_vias(
+                &k,
+                crate::stitch::StitchArgs {
+                    reference: args.reference,
+                    pin: args.pin,
+                    net: args.net,
+                    drill_mm: args.drill_mm,
+                    size_mm: args.size_mm,
+                    stub_width_mm: args.stub_width_mm,
+                },
+            )
+            .await
+        })
+        .await
+    }
+
+    #[tool(
         description = "Create a copper zone (pour) and refill. net is required (5V or GND). layer is F.Cu or B.Cu (default F.Cu). Rectangle: origin_x_mm/origin_y_mm/width_mm/height_mm (origin = bottom-left). Polygon: points [{x_mm, y_mm}, ...] in KiCad millimetres. Pads should already sit on that net via connect_pins. Ctrl+Z undoes."
     )]
     async fn set_copper_zone(
@@ -705,8 +770,16 @@ impl KicadMcp {
                 .as_ref()
                 .map(|pts| pts.iter().map(|p| (p.x_mm, p.y_mm)).collect())
                 .unwrap_or_default();
+            let mut codes = board_net_codes(&k).await;
+            let net_code = codes.code_for(&args.net);
             let item = if poly.len() >= 3 {
-                crate::copper::poly_zone_mm(&poly, layer, &args.net, args.name.as_deref())?
+                crate::copper::poly_zone_mm_coded(
+                    &poly,
+                    layer,
+                    &args.net,
+                    args.name.as_deref(),
+                    net_code,
+                )?
             } else {
                 let ox = args.origin_x_mm.ok_or_else(|| {
                     "set_copper_zone needs origin+size or points".to_string()
@@ -978,6 +1051,10 @@ fn next_free_reference(used: &[String], prefix: &str) -> String {
     format!("{}{}", prefix, max + 1)
 }
 
+async fn board_net_codes(k: &Kicad) -> crate::nets::NetCodes {
+    crate::nets::NetCodes::from_board(&k.board_nets().await.unwrap_or_default())
+}
+
 /// KiCad's default drawing sheet is A4 landscape (297 × 210 mm).
 /// New board outlines sit in the middle of that visible work area.
 const SHEET_W_MM: f64 = 297.0;
@@ -1128,6 +1205,19 @@ pub struct AddViasArgs {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct StitchViaArgs {
+    /// Footprint reference, e.g. `"U73"`. Required with pin for a single pad.
+    pub reference: Option<String>,
+    /// Pad number, e.g. `"1"`. Required with reference for a single pad.
+    pub pin: Option<String>,
+    /// Stitch every SMD pad on this net (e.g. `"GND"`). Or confirm the pin's net.
+    pub net: Option<String>,
+    pub drill_mm: Option<f64>,
+    pub size_mm: Option<f64>,
+    pub stub_width_mm: Option<f64>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct SetZoneArgs {
     pub origin_x_mm: Option<f64>,
     pub origin_y_mm: Option<f64>,
@@ -1172,7 +1262,7 @@ async fn commit_connect(
 impl ServerHandler for KicadMcp {
     fn get_info(&self) -> ServerInfo {
         let write_note = if self.allow_ai_write {
-            "Write tools are ENABLED (--allow-ai-write): download_lcsc_part, place_footprint, place_parts, place_matrix, remove_footprint, clear_board, set_board_outline, connect_pins, connect_many, add_track, add_tracks, add_via, add_vias, set_copper_zone, ripup_wire, save_board, export_manufacturing."
+            "Write tools are ENABLED (--allow-ai-write): download_lcsc_part, place_footprint, place_parts, place_matrix, remove_footprint, clear_board, set_board_outline, connect_pins, connect_many, add_track, add_tracks, add_via, add_vias, stitch_via, set_copper_zone, ripup_wire, save_board, export_manufacturing."
         } else {
             "Write tools are DISABLED. Relaunch with --allow-ai-write."
         };
@@ -1189,7 +1279,7 @@ impl ServerHandler for KicadMcp {
              (set_board_outline); default origin is the sheet centre, not 0,0. Outline replace defaults to true. \
              Place on free F.CrtYd space inside the board; placement refuses courtyard overlap. \
              Darkroom panel: darkroom_led_panel_4x5_slim.json (~153 mm round, 109 LEDs). \
-             clear_board, set_board_outline with points, place_parts, connect_many, add_tracks/add_vias, set_copper_zone. \
+             clear_board, set_board_outline with points, place_parts, connect_many, stitch_via (GND stubs), add_tracks, set_copper_zone. \
              No move_footprint (remove then place). Copper: get_routing_scene then ripup_wire with segment_id. \
              No autorouter. Do not edit .kicad_pcb by hand. \
              export_manufacturing writes JLCPCB files: <stem>_gerbers.zip + _bom.csv + _cpl.csv (needs kicad-cli). \

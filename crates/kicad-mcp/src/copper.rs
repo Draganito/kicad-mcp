@@ -8,9 +8,9 @@ use crate::place::mm_to_nm;
 const BL_F_CU: i32 = 3;
 const BL_B_CU: i32 = 34;
 const LS_UNLOCKED: i32 = 1;
-const PST_NORMAL: i32 = 1;
 const PSS_CIRCLE: i32 = 1;
 const VT_THROUGH: i32 = 1;
+const PST_FRONT_INNER_BACK: i32 = 2;
 const ZT_COPPER: i32 = 1;
 const ZFM_SOLID: i32 = 1;
 const IRM_NEVER: i32 = 2;
@@ -99,6 +99,17 @@ pub fn via_any(
     drill_mm: Option<f64>,
     size_mm: Option<f64>,
 ) -> Result<Any, String> {
+    via_any_coded(x_mm, y_mm, net, drill_mm, size_mm, 0)
+}
+
+pub fn via_any_coded(
+    x_mm: f64,
+    y_mm: f64,
+    net: &str,
+    drill_mm: Option<f64>,
+    size_mm: Option<f64>,
+    net_code: i32,
+) -> Result<Any, String> {
     if net.trim().is_empty() {
         return Err("add_via needs a net name (connect_pins first)".into());
     }
@@ -116,7 +127,7 @@ pub fn via_any(
             y_nm: mm_to_nm(y_mm),
         }),
         pad_stack: Some(PadStack {
-            r#type: PST_NORMAL,
+            r#type: PST_FRONT_INNER_BACK,
             layers: vec![BL_F_CU, BL_B_CU],
             drill: Some(DrillProperties {
                 start_layer: BL_F_CU,
@@ -127,20 +138,27 @@ pub fn via_any(
                 }),
                 shape: PSS_CIRCLE,
             }),
-            copper_layers: vec![PadStackLayer {
-                layer: BL_F_CU,
-                shape: PSS_CIRCLE,
-                size: Some(Vector2 {
-                    x_nm: mm_to_nm(size),
-                    y_nm: mm_to_nm(size),
-                }),
-            }],
+            copper_layers: vec![
+                via_copper_layer(BL_F_CU, size),
+                via_copper_layer(BL_B_CU, size),
+            ],
         }),
         locked: LS_UNLOCKED,
-        net: Some(net_msg(net, 0)),
+        net: Some(net_msg(net, net_code)),
         r#type: VT_THROUGH,
     };
     Ok(pack(&item, TYPE_VIA))
+}
+
+fn via_copper_layer(layer: i32, size_mm: f64) -> PadStackLayer {
+    PadStackLayer {
+        layer,
+        shape: PSS_CIRCLE,
+        size: Some(Vector2 {
+            x_nm: mm_to_nm(size_mm),
+            y_nm: mm_to_nm(size_mm),
+        }),
+    }
 }
 
 pub fn rect_zone_any(
@@ -167,6 +185,7 @@ pub fn rect_zone_any(
         layer,
         net,
         name,
+        0,
     )
 }
 
@@ -193,7 +212,33 @@ pub fn poly_zone_mm(
         .iter()
         .map(|(x, y)| (mm_to_nm(*x), mm_to_nm(*y)))
         .collect();
-    poly_zone_any(&nm, layer, net, name)
+    poly_zone_any(&nm, layer, net, name, 0)
+}
+
+pub fn poly_zone_mm_coded(
+    points_mm: &[(f64, f64)],
+    layer: i32,
+    net: &str,
+    name: Option<&str>,
+    net_code: i32,
+) -> Result<Any, String> {
+    if net.trim().is_empty() {
+        return Err("set_copper_zone needs a net name (connect_pins first)".into());
+    }
+    if points_mm.len() < 3 {
+        return Err("copper zone polygon needs at least 3 points".into());
+    }
+    if points_mm.len() > 400 {
+        return Err(format!(
+            "copper zone polygon max 400 points (got {})",
+            points_mm.len()
+        ));
+    }
+    let nm: Vec<(i64, i64)> = points_mm
+        .iter()
+        .map(|(x, y)| (mm_to_nm(*x), mm_to_nm(*y)))
+        .collect();
+    poly_zone_any(&nm, layer, net, name, net_code)
 }
 
 fn poly_zone_any(
@@ -201,6 +246,7 @@ fn poly_zone_any(
     layer: i32,
     net: &str,
     name: Option<&str>,
+    net_code: i32,
 ) -> Result<Any, String> {
     let nodes = corners_nm
         .iter()
@@ -234,7 +280,7 @@ fn poly_zone_any(
             }),
             island_mode: IRM_NEVER,
             fill_mode: ZFM_SOLID,
-            net: Some(net_msg(net, 0)),
+            net: Some(net_msg(net, net_code)),
         })),
     };
     Ok(pack(&zone, TYPE_ZONE))
@@ -435,6 +481,16 @@ mod tests {
     fn via_rejects_tiny_annular_ring() {
         let err = via_any(0.0, 0.0, "GND", Some(0.6), Some(0.6)).unwrap_err();
         assert!(err.contains("larger"));
+    }
+
+    #[test]
+    fn via_has_front_and_back_copper() {
+        let any = via_any(1.0, 2.0, "GND", Some(0.3), Some(0.6)).unwrap();
+        let v = Via::decode(any.value.as_slice()).unwrap();
+        let stack = v.pad_stack.unwrap();
+        let layers: Vec<i32> = stack.copper_layers.iter().map(|l| l.layer).collect();
+        assert_eq!(layers, vec![BL_F_CU, BL_B_CU]);
+        assert_eq!(stack.r#type, PST_FRONT_INNER_BACK);
     }
 
     #[test]

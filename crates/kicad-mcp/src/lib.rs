@@ -18,3 +18,4 @@ pub mod nets;
 pub mod outline;
 pub mod place;
 pub mod proto_wire;
+pub mod stitch;

@@ -156,13 +156,13 @@ fn pad_id_of(entry: &PadNetEntry) -> Result<String, String> {
     })
 }
 
-struct NetCodes {
+pub(crate) struct NetCodes {
     by_name: HashMap<String, i32>,
     next: i32,
 }
 
 impl NetCodes {
-    fn from_board(nets: &[kicad_ipc_rs::model::board::BoardNet]) -> Self {
+    pub(crate) fn from_board(nets: &[kicad_ipc_rs::model::board::BoardNet]) -> Self {
         let mut by_name = HashMap::new();
         let mut next = 1;
         for net in nets {
@@ -174,7 +174,7 @@ impl NetCodes {
         Self { by_name, next }
     }
 
-    fn code_for(&mut self, name: &str) -> i32 {
+    pub(crate) fn code_for(&mut self, name: &str) -> i32 {
         if let Some(&code) = self.by_name.get(name) {
             return code;
         }
