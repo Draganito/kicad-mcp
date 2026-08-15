@@ -26,8 +26,10 @@ Was liegt wo
 Voraussetzungen
 ---------------
 - Debian/Ubuntu x86-64, glibc 2.39+ (ldd --version)
-- KiCad 9 oder 10, PCB-Editor offen
+- KiCad 10, PCB-Editor offen (nicht das Debian-9-Paket)
 - In KiCad: Preferences → Plugins → Enable IPC API, dann KiCad neu starten
+- Start immer über ~/Programme/kicad-10.sh (Vorlage: scripts/kicad-10.sh;
+  TMPDIR=/tmp, sonst findet MCP den Socket nicht). Handbuch §3.
 
 Start
 -----
@@ -44,4 +46,6 @@ Produkt
 - Platine = Edge.Cuts in KiCad; .kicad_pcb nicht von Hand anfassen
 - LCSC-Teile über download_lcsc_part (EasyEDA-Geometrie)
 - Platzieren, Netze, Leiterbahnen, Vias, Kupferzonen über MCP
+- export_manufacturing: Gerber-Zip + BOM + CPL für JLCPCB
+  (Silk ohne Bauteilnummern — sonst DFM Silkscreen-to-pad)
 - Jeder Write landet auf KiCads Undo-Stack (Ctrl+Z)

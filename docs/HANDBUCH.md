@@ -48,8 +48,9 @@ Von [GitHub Releases](https://github.com/Draganito/kicad-mcp/releases):
 sudo apt install ./kicad-mcp_<version>_amd64.deb
 ```
 
-Debian/Ubuntu x86-64, glibc 2.39+. KiCad 9 oder 10 muss zusätzlich
-installiert sein (`recommends: kicad`).
+Debian/Ubuntu x86-64, glibc 2.39+. **KiCad 10** muss laufen
+(`recommends: kicad` ist nur das Systempaket — auf Debian 13 ist das
+9.0.2 und reicht nicht für Netze).
 
 ### Aus dem Quellcode
 
@@ -62,11 +63,36 @@ Binary: `target/release/kicad-mcp`.
 
 ## 3. KiCad vorbereiten
 
-1. PCB-Editor öffnen (eine Platine muss geladen sein).
-2. **Preferences → Plugins → Enable IPC API**.
-3. KiCad neu starten.
+kicad-mcp zielt auf **KiCad 10**. Dort bleiben Netze nach
+`connect_many` / `set_copper_zone` erhalten. System-KiCad 9 auf Debian 13
+nicht verwenden.
+
+1. Offizielles AppImage: [kicad.org/download/linux](https://www.kicad.org/download/linux/)
+   — **Lite** reicht. Manche Browser speichern
+   `kicad-10.0.5-x86_64.AppImage.tar`: `tar -xf … -C ~/Programme`.
+2. `chmod +x ~/Programme/kicad-10.0.5-x86_64.AppImage`
+3. **Immer** über den Wrapper starten, nicht die `.AppImage` und nicht
+   `/usr/bin/kicad`. Das AppImage legt `TMPDIR` sonst unter
+   `~/.cache/tmp` — MCP sucht `ipc:///tmp/kicad/api.sock`.
+
+```bash
+install -m 755 scripts/kicad-10.sh ~/Programme/kicad-10.sh
+~/Programme/kicad-10.sh
+```
+
+`scripts/kicad-10.sh` setzt `TMPDIR=/tmp` und startet das AppImage aus
+`~/Programme/` (oder `KICAD_10_APPIMAGE`). Menüeintrag:
+`Exec=$HOME/Programme/kicad-10.sh`.
+
+4. PCB-Editor öffnen (eine Platine muss geladen sein).
+5. **Einstellungen → Plugins → IPC-API aktivieren**, KiCad neu starten.
+6. `board_summary` muss `10.0.x` und `net_ipc_persists: true` zeigen.
+   MCP in Cursor einmal aus/an, wenn vorher 9 lief.
 
 Ohne IPC-API schlagen alle Tools fehl (Socket-Fehler).
+
+`export_manufacturing` braucht `kicad-cli` **aus KiCad 10** (Mount
+`/tmp/.mount_kicad*/bin/kicad-cli`), nicht das System-9-Binary.
 
 ## 4. Cursor / MCP
 
@@ -111,19 +137,17 @@ Platzierung prüft F.CrtYd-Überlappung untereinander. Kein
 `move_footprint`: entfernen und neu setzen. LCSC-C-Nummern nicht durch
 generische KiCad-Library-Footprints ersetzen.
 
-**KiCad 9:** Nested Pads werden nicht mit dem Parent transformiert.
-`place.rs` backt Board-Millimeter in jedes Pad. Ohne diesen Bake liegt
-das Kupfer in der Blatt-Ecke (0,0), während die API behauptet, das Teil
-sitze in der Mitte.
+Nested Pads werden nicht mit dem Parent transformiert. `place.rs` backt
+Board-Millimeter in jedes Pad. Ohne diesen Bake liegt das Kupfer in der
+Blatt-Ecke (0,0), während die API behauptet, das Teil sitze in der Mitte.
 
 ## 7. Netze
 
-`connect_pins` / `connect_many` setzen nur **Pad.net** (Ratsnest), kein
-Kupfer. Daisy-Chain: `net` weglassen. `connect_pins` splict das Netz in
-die Parent-FootprintInstance — ein freies Pad-UpdateItems lehnt KiCad ab.
-
-**KiCad 9.0.2** übernimmt den IPC-Update, persistiert `Pad.net` /
-`Track.net` aber nicht. Netze in der GUI zuweisen oder KiCad 10 nutzen.
+`connect_pins` / `connect_many` setzen **Pad.net** (Ratsnest), kein
+Kupfer. Daisy-Chain: `net` weglassen. Das Netz wird in die
+Parent-FootprintInstance gespliced — ein freies Pad-UpdateItems lehnt
+KiCad ab. Auf **KiCad 10** bleibt der Name nach Speichern erhalten;
+`get_nets` / `check_board` müssen ihn zeigen.
 
 ## 8. Kupfer
 
@@ -159,11 +183,25 @@ Kein Autorouter. Keine parallelen Copper-Writes: KiCad
 | `set_copper_zone` | Schreiben — Pour + Refill |
 | `ripup_wire` | Schreiben |
 | `save_board` | Schreiben — nur auf Wunsch |
+| `export_manufacturing` | Schreiben — JLCPCB: `*_gerbers.zip` + `*_bom.csv` + `*_cpl.csv` (`kicad-cli`) |
 
 ## 10. Speichern und Undo
 
 Jeder Write liegt auf KiCads Undo-Stack (**Ctrl+Z**). `save_board` nur
 wenn der Mensch es verlangt.
+
+`export_manufacturing` speichert die offene Platine, füllt Zonen neu
+und schreibt drei Dateien (wie Alladin) ins Projektverzeichnis oder
+nach `out_dir`:
+
+| Datei | JLCPCB-Slot |
+| --- | --- |
+| `<name>_gerbers.zip` | PCB / Gerber (Kupfer, Maske, Silk, Paste, Edge.Cuts, Bohrung). **Kein** Bestückungsdruck der Bauteilnummern (U1, C3, …) und kein Value-Text — die liegen auf dichtem Raster zu nah an Pads/Bohrungen und scheitern bei JLCPCB am Silk-to-pad / Silk-to-hole-DFM. Referenzen stehen in BOM und CPL. |
+| `<name>_bom.csv` | BOM (Comment, Designator, Footprint, LCSC Part #) |
+| `<name>_cpl.csv` | CPL / Centroid (Designator, Mid X, Mid Y, Layer, Rotation) |
+
+Builtin-Drahtpads und M3-Löcher stehen nicht in BOM/CPL. Braucht
+`kicad-cli` (Paket `kicad`).
 
 ## 11. Debian-Paket bauen
 
@@ -181,11 +219,12 @@ Asset hochladen.
 | Symptom | Ursache / Fix |
 | --- | --- |
 | connect / No such file | KiCad zu, oder IPC API aus |
+| `api.sock` fehlt (AppImage 10) | Direkt die `.AppImage` gestartet — `~/Programme/kicad-10.sh` nutzen (`TMPDIR=/tmp`) |
 | Write refused | `--allow-ai-write` fehlt |
 | Kupfer in der Blatt-Ecke | Pad-Bake fehlt — Regression in `place.rs` |
 | `replaced_segments: 0` | Altes MCP-Binary; nach Rust-Fix MCP neu laden |
 | Loch in der Kupferzone | Inneres Edge.Cuts war ein Ausschnitt; Zonen neu füllen (B in KiCad) oder `set_board_outline` erneut |
-| `net_count: 1`, viele unconnected | KiCad 9.0.2 persistiert keine Pad-Netze |
+| `net_count: 1`, viele unconnected / `net_ipc_persists: false` | Falsches KiCad (9) — `~/Programme/kicad-10.sh` |
 | Commit already in progress | Copper-Batches nicht parallel senden |
 
 ## 13. Bewusste Grenzen
@@ -194,4 +233,4 @@ Asset hochladen.
 - Kein Edit von `.kicad_pcb` über diesen Server.
 - Maximal 150 Teile / Tracks / Vias pro Undo-Batch.
 - Polygon-Umriss max. 400 Punkte.
-- Zielplattform für Netze: KiCad 10; 9.0.2 nur Geometrie zuverlässig.
+- Zielplattform: **KiCad 10**. System-9 nur Geometrie, keine Netze.

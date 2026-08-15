@@ -10,7 +10,7 @@ use kicad_mcp::mcp::KicadMcp;
     about = "Drive a running KiCad PCB editor from Cursor over MCP"
 )]
 struct Args {
-    /// Enable download/place/remove/outline/nets/copper/ripup/save. Without this, every write tool refuses.
+    /// Enable download/place/remove/outline/nets/copper/ripup/save/export. Without this, every write tool refuses.
     #[arg(long)]
     allow_ai_write: bool,
 }

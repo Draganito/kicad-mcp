@@ -23,11 +23,15 @@ Cursor MCP setup, and docs:
 sudo apt install ./kicad-mcp_<version>_amd64.deb
 ```
 
-Debian/Ubuntu x86-64, glibc 2.39+. You still need **KiCad 9 or 10**
-installed, with Preferences → Plugins → **Enable IPC API**. Copy the
-contents of `/usr/share/kicad-mcp/cursor-setup/` (`.cursor/` **and**
-`.cursorignore`) into the folder you open in Cursor. Everything below
-is only needed if you want to build from source.
+Debian/Ubuntu x86-64, glibc 2.39+. You need **KiCad 10** with
+Preferences → Plugins → **Enable IPC API**. On Debian 13, system KiCad
+is 9.0.2 — do not use it. Start the official AppImage with
+[`scripts/kicad-10.sh`](scripts/kicad-10.sh) (install as
+`~/Programme/kicad-10.sh`) so the socket is `/tmp/kicad/api.sock`. See
+[docs/HANDBUCH.md](docs/HANDBUCH.md) §3 / [docs/MANUAL.md](docs/MANUAL.md) §3.
+Copy the contents of `/usr/share/kicad-mcp/cursor-setup/` (`.cursor/`
+**and** `.cursorignore`) into the folder you open in Cursor. Everything
+below is only needed if you want to build from source.
 
 ## What you get
 
@@ -43,7 +47,7 @@ is only needed if you want to build from source.
 
 ## Build
 
-Requirements: recent Rust (stable), Linux, KiCad 9 or 10 with IPC API.
+Requirements: recent Rust (stable), Linux, KiCad 10 with IPC API.
 
 ```bash
 cargo test --workspace
@@ -87,7 +91,7 @@ Write: `download_lcsc_part`, `place_footprint`, `place_parts`,
 `place_matrix`, `remove_footprint`, `clear_board`, `set_board_outline`,
 `connect_pins`, `connect_many`, `add_track`, `add_tracks`, `add_via`,
 `add_vias`, `set_copper_zone`, `ripup_wire` (by `segment_id`),
-`save_board`.
+`save_board`, `export_manufacturing`.
 
 Coordinates are **KiCad native millimetres** (board origin, +x right,
 +y up). Start with `board_summary`.
@@ -97,10 +101,16 @@ Board size is **Edge.Cuts** (`set_board_outline`). If origin is omitted
 on a rectangle, it is centred on that sheet. Existing Edge.Cuts are
 **replaced** unless `replace` is false.
 
-**KiCad 9.0.2** accepts net updates but does not persist `Pad.net` /
-`Track.net`. Geometry does persist. Assign nets in the GUI on 9, or
-use KiCad 10. Nested pads are not parent-transformed — this crate
-bakes board millimetres into every pad.
+**KiCad 10** persists `Pad.net` / `Track.net` after `connect_many`.
+System 9 does not — `board_summary.net_ipc_persists` must be true.
+Nested pads are not parent-transformed — this crate bakes board
+millimetres into every pad.
+
+`export_manufacturing` needs **kicad-cli** (same KiCad install). It
+saves the open board, then writes Alladin-style JLCPCB files next to
+the project: `<name>_gerbers.zip`, `<name>_bom.csv`, `<name>_cpl.csv`.
+Silkscreen in the zip has **no** reference/value text (JLCPCB DFM
+flags those on dense boards); names stay in the BOM and CPL.
 
 ## Repository layout
 

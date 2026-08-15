@@ -5,7 +5,7 @@ editor** over the official IPC API (protobuf / NNG). Cursor launches the
 binary as a **stdio MCP** server.
 
 ```text
-Cursor  --stdio MCP-->  kicad-mcp  --KiCad IPC-->  pcbnew (KiCad 9/10)
+Cursor  --stdio MCP-->  kicad-mcp  --KiCad IPC-->  pcbnew (KiCad 10)
                               |
                               +-- easyeda-kicad --> LCSC/EasyEDA HTTP
 ```
@@ -25,19 +25,24 @@ commit (one Ctrl+Z).
 KiCad native millimetres, origin = board origin, +x right, +y up. The
 A4 frame is the drawing sheet; the PCB is Edge.Cuts.
 
-## Placement (KiCad 9)
+## Placement
 
 `CreateItems` stores `FootprintInstance.position` but draws nested pads
 at the raw coordinates in the protobuf. `place.rs` bakes board
 millimetres into every pad (and silk/fab text). Dropping that bake
 puts copper at the sheet corner.
 
-## Nets (KiCad 9.0.2)
+## Nets (KiCad 10)
 
 `connect_pins` splices `Pad.net` into the parent footprint and
-`UpdateItems` it. A free-pad update is rejected. 9.0.2 does not persist
-`Pad.net` / `Track.net` after a successful IPC update. Geometry does
-persist. KiCad 10 is the intended target for nets.
+`UpdateItems` it. A free-pad update is rejected. KiCad 10 persists
+`Pad.net` / `Track.net`. `board_summary.net_ipc_persists` is true from
+major version 10.
+
+Start 10 with `scripts/kicad-10.sh` (copy: `~/Programme/kicad-10.sh`).
+The wrapper forces `TMPDIR=/tmp` so the NNG socket is
+`/tmp/kicad/api.sock`. Starting the `.AppImage` or `/usr/bin/kicad` (9)
+breaks nets or the socket.
 
 ## Outline replace
 
@@ -52,3 +57,16 @@ recreates, then refills zones. An inner closed Edge.Cuts path is a
 `cargo deb -p kicad-mcp`. The `.deb` ships `/usr/bin/kicad-mcp`, docs,
 and `contrib/cursor-setup`. Live boards under `kicad_projekte/` and
 `.cursor/` (local debug `mcp.json`) stay out of git.
+
+## Manufacturing export
+
+`export_manufacturing` saves the open board, then shells out to
+`kicad-cli pcb export gerbers|drill|pos` (KiCad's plotter — this crate
+does not parse `.kicad_pcb`). Gerber silk is plotted with
+`--exclude-refdes` and `--exclude-value` so JLCPCB DFM does not report
+silkscreen-to-pad / silkscreen-to-hole on dense LED grids; designators
+stay in BOM/CPL only. BOM rows are grouped from live footprints
+(LCSC C-number from the EasyEDA template name). CPL is the KiCad
+position CSV rewritten to JLCPCB columns. Output matches Alladin:
+`<stem>_gerbers.zip`, `<stem>_bom.csv`, `<stem>_cpl.csv`.
+

@@ -27,6 +27,8 @@ pub fn mm_to_nm(mm: f64) -> i64 {
 #[derive(Debug, Serialize)]
 pub struct BoardSummary {
     pub kicad_version: String,
+    /// Pad/track/via nets persist over IPC from KiCad 10 on.
+    pub net_ipc_persists: bool,
     pub project_path: Option<String>,
     pub has_open_board: bool,
     pub copper_layer_count: Option<u32>,
@@ -35,9 +37,31 @@ pub struct BoardSummary {
     pub track_count: usize,
     pub via_count: usize,
     pub zone_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+fn net_ipc_persists(version: &str) -> bool {
+    version
+        .split(|c: char| !c.is_ascii_digit() && c != '.')
+        .next()
+        .and_then(|s| s.split('.').next())
+        .and_then(|maj| maj.parse::<u32>().ok())
+        .is_some_and(|maj| maj >= 10)
+}
+
+fn version_note(version: &str) -> Option<String> {
+    if net_ipc_persists(version) {
+        None
+    } else {
+        Some(
+            "KiCad 9 does not persist Pad.net over IPC. Start KiCad 10 via ~/Programme/kicad-10.sh (scripts/kicad-10.sh)."
+                .into(),
+        )
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct FootprintInfo {
     pub id: Option<String>,
     pub reference: Option<String>,
@@ -96,7 +120,8 @@ impl Kicad {
             .map(|p| p.display().to_string());
         if !has_open_board {
             return Ok(BoardSummary {
-                kicad_version: version.full_version,
+                kicad_version: version.full_version.clone(),
+                net_ipc_persists: net_ipc_persists(&version.full_version),
                 project_path,
                 has_open_board: false,
                 copper_layer_count: None,
@@ -105,6 +130,7 @@ impl Kicad {
                 track_count: 0,
                 via_count: 0,
                 zone_count: 0,
+                note: version_note(&version.full_version),
             });
         }
         let nets = self.client.get_nets().await.unwrap_or_default();
@@ -118,7 +144,8 @@ impl Kicad {
             .await
             .unwrap_or_default();
         Ok(BoardSummary {
-            kicad_version: version.full_version,
+            kicad_version: version.full_version.clone(),
+            net_ipc_persists: net_ipc_persists(&version.full_version),
             project_path,
             has_open_board: true,
             copper_layer_count: layers.map(|l| l.copper_layer_count),
@@ -127,6 +154,7 @@ impl Kicad {
             track_count: tracks.len(),
             via_count: vias.len(),
             zone_count: zones.len(),
+            note: version_note(&version.full_version),
         })
     }
 
@@ -142,6 +170,41 @@ impl Kicad {
             Ok(parent.to_path_buf())
         } else {
             Err("KiCad has no project path — save the board first".into())
+        }
+    }
+
+    /// Path of the open `.kicad_pcb` on disk (`kicad-cli` needs this).
+    pub async fn board_file_path(&self) -> Result<PathBuf, String> {
+        let docs = self
+            .client
+            .get_open_documents(DocumentType::Pcb)
+            .await
+            .map_err(fmt_err)?;
+        let doc = docs
+            .into_iter()
+            .next()
+            .ok_or_else(|| "no open PCB — open a board in KiCad first".to_string())?;
+        let name = doc
+            .board_filename
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| "board has no filename — save it in KiCad first".to_string())?;
+        let named = PathBuf::from(&name);
+        if named.is_absolute() && named.is_file() {
+            return Ok(named);
+        }
+        let dir = match doc.project.path {
+            Some(p) if p.is_dir() => p,
+            Some(p) => p.parent().map(Path::to_path_buf).unwrap_or(p),
+            None => self.project_dir().await?,
+        };
+        let candidate = dir.join(&name);
+        if candidate.is_file() {
+            Ok(candidate)
+        } else {
+            Err(format!(
+                "board file not on disk: {} — save the board in KiCad first",
+                candidate.display()
+            ))
         }
     }
 
@@ -380,7 +443,7 @@ fn fmt_err(err: impl std::fmt::Display) -> String {
     let text = err.to_string();
     if text.contains("connect") || text.contains("socket") || text.contains("No such file") {
         format!(
-            "{text} — start KiCad 9+, open a board, and enable Preferences → Plugins → Enable IPC API"
+            "{text} — start KiCad 10 (`~/Programme/kicad-10.sh`), open a board, and enable Preferences → Plugins → Enable IPC API"
         )
     } else {
         text
@@ -397,12 +460,19 @@ pub fn jlc_sym_path(project: &Path) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use super::layer_is_edge_cuts;
+    use super::{layer_is_edge_cuts, net_ipc_persists};
 
     #[test]
     fn edge_cuts_matches_ipc_proto_name() {
         assert!(layer_is_edge_cuts(47, "BL_Edge_Cuts"));
         assert!(layer_is_edge_cuts(0, "Edge.Cuts"));
         assert!(!layer_is_edge_cuts(3, "BL_F_Cu"));
+    }
+
+    #[test]
+    fn net_ipc_from_kicad_10() {
+        assert!(!net_ipc_persists("9.0.2+dfsg-1"));
+        assert!(net_ipc_persists("10.0.5"));
+        assert!(net_ipc_persists("10.0.5+dfsg-1"));
     }
 }

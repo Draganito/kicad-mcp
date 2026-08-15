@@ -5,12 +5,16 @@ aus Cursor. Das Nachschlagewerk ist [docs/HANDBUCH.md](docs/HANDBUCH.md).
 
 ## 1. KiCad
 
-1. KiCad 9 oder 10 installieren und den **PCB-Editor** öffnen
-   (eine leere Platine reicht).
-2. **Preferences → Plugins → Enable IPC API** einschalten.
-3. KiCad **neu starten**, PCB-Editor wieder öffnen.
+1. **KiCad 10** starten — auf Debian immer
+   `~/Programme/kicad-10.sh` (Vorlage: `scripts/kicad-10.sh`), nicht
+   das System-KiCad 9 und nicht die `.AppImage` direkt.
+   Download: [docs/HANDBUCH.md](docs/HANDBUCH.md) §3.
+2. **PCB-Editor** öffnen (eine leere Platine reicht).
+3. **Preferences → Plugins → Enable IPC API** einschalten.
+4. KiCad **neu starten**, PCB-Editor wieder öffnen.
 
 Ohne diesen Haken kann kicad-mcp KiCad nicht erreichen.
+`board_summary` muss `10.0.x` und `net_ipc_persists: true` zeigen.
 
 ## 2. Paket installieren
 
@@ -47,7 +51,9 @@ Danach typischer Ablauf:
 4. `connect_many` — Netze (Ratsnest)
 5. `add_track` / `set_copper_zone` — Kupfer
 6. `check_board` — bevor die KI „fertig“ sagt
-7. `save_board` — **nur wenn du es willst**
+7. `export_manufacturing` — Gerber-Zip + BOM + CPL für JLCPCB
+   (Silk ohne U1/C3-Beschriftung — sonst DFM „Silkscreen to pad“)
+8. `save_board` — **nur wenn du es willst**
 
 Rückgängig in KiCad: **Ctrl+Z**. `.kicad_pcb` nicht von Hand editieren.
 
@@ -64,7 +70,8 @@ Ohne Origin liegt ein Rechteck-Umriss in der Blattmitte, nicht bei 0,0.
 | MCP verbindet nicht | IPC API aus, oder PCB-Editor nicht offen |
 | Write-Tools lehnen ab | `--allow-ai-write` fehlt in `mcp.json` |
 | Teile sitzen in der Blatt-Ecke | Pad-Koordinaten nicht gebacken — Bug, nicht du |
-| Netze leer nach `connect_pins` | KiCad 9.0.2 speichert Pad.net nicht über IPC |
+| Netze leer / `net_ipc_persists: false` | System-KiCad 9 statt `~/Programme/kicad-10.sh` |
+| AppImage 10, kein Socket | `.AppImage` direkt gestartet statt `~/Programme/kicad-10.sh` |
 | Altes Edge.Cuts bleibt | `replace` muss true sein (Default); MCP neu laden nach einem Update |
 
 Mehr: [docs/HANDBUCH.md](docs/HANDBUCH.md) Kapitel „Probleme lösen“.

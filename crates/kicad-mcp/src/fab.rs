@@ -1,0 +1,501 @@
+//! JLCPCB manufacturing bundle from the open KiCad board.
+//!
+//! Gerbers and drill come from `kicad-cli` (KiCad's own plotter — we do
+//! not parse `.kicad_pcb`). Silk omits footprint reference/value text
+//! (`--exclude-refdes` / `--exclude-value`) so JLCPCB DFM does not flag
+//! silkscreen-to-pad / silkscreen-to-hole on dense boards. BOM and CPL
+//! are rewritten to JLCPCB's CSV columns, matching Alladin:
+//! `<stem>_gerbers.zip`, `<stem>_cpl.csv`, `<stem>_bom.csv`.
+
+use std::collections::BTreeMap;
+use std::fs;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+use crate::builtins::{MOUNTING_HOLE_M3, WIRE_PAD};
+use crate::kicad::FootprintInfo;
+
+const JLC_GERBER_LAYERS: &str =
+    "F.Cu,B.Cu,F.Paste,B.Paste,F.SilkS,B.SilkS,F.Mask,B.Mask,Edge.Cuts";
+
+const PLOT_EXTS: &[&str] = &[
+    "gtl", "gbl", "gts", "gbs", "gto", "gbo", "gtp", "gbp", "gm1", "gm2", "gm3", "gbr", "gbrjob",
+    "drl", "gd1",
+];
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ManufacturingFiles {
+    pub gerber_zip: PathBuf,
+    pub cpl_csv: PathBuf,
+    pub bom_csv: PathBuf,
+    pub bom_rows: usize,
+    pub cpl_rows: usize,
+    pub gerber_files: Vec<String>,
+}
+
+pub struct BomRow {
+    pub comment: String,
+    pub designators: Vec<String>,
+    pub footprint: String,
+    pub lcsc_part_number: String,
+}
+
+pub fn export_manufacturing(
+    board_file: &Path,
+    out_dir: &Path,
+    footprints: &[FootprintInfo],
+) -> Result<ManufacturingFiles, String> {
+    if !board_file.is_file() {
+        return Err(format!(
+            "board file not on disk: {} — save the board in KiCad first",
+            board_file.display()
+        ));
+    }
+    let stem = board_file
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .filter(|s| !s.is_empty())
+        .ok_or("board file has no name")?
+        .to_string();
+    fs::create_dir_all(out_dir).map_err(|e| e.to_string())?;
+
+    let plot_dir = out_dir.join(format!(".{stem}.kicad-mcp-plot"));
+    if plot_dir.exists() {
+        fs::remove_dir_all(&plot_dir).map_err(|e| e.to_string())?;
+    }
+    fs::create_dir_all(&plot_dir).map_err(|e| e.to_string())?;
+
+    let result = (|| {
+        run_kicad_cli(&[
+            "pcb",
+            "export",
+            "gerbers",
+            "--output",
+            plot_dir.to_str().ok_or("plot dir is not UTF-8")?,
+            "--layers",
+            JLC_GERBER_LAYERS,
+            "--exclude-refdes",
+            "--exclude-value",
+            "--subtract-soldermask",
+            "--disable-aperture-macros",
+            board_file.to_str().ok_or("board path is not UTF-8")?,
+        ])?;
+        run_kicad_cli(&[
+            "pcb",
+            "export",
+            "drill",
+            "--output",
+            plot_dir.to_str().ok_or("plot dir is not UTF-8")?,
+            "--format",
+            "excellon",
+            "--excellon-units",
+            "mm",
+            "--excellon-zeros-format",
+            "decimal",
+            "--excellon-separate-th",
+            board_file.to_str().ok_or("board path is not UTF-8")?,
+        ])?;
+        let pos_raw = plot_dir.join("kicad-pos.csv");
+        run_kicad_cli(&[
+            "pcb",
+            "export",
+            "pos",
+            "--output",
+            pos_raw.to_str().ok_or("pos path is not UTF-8")?,
+            "--format",
+            "csv",
+            "--units",
+            "mm",
+            "--side",
+            "both",
+            "--exclude-dnp",
+            board_file.to_str().ok_or("board path is not UTF-8")?,
+        ])?;
+
+        let gerber_names = collect_plot_files(&plot_dir)?;
+        if gerber_names.is_empty() {
+            return Err("kicad-cli wrote no gerber/drill files".into());
+        }
+        let gerber_zip = out_dir.join(format!("{stem}_gerbers.zip"));
+        zip_files(&plot_dir, &gerber_names, &gerber_zip)?;
+
+        let pos_text = fs::read_to_string(&pos_raw).map_err(|e| e.to_string())?;
+        let cpl = ki_pos_to_jlcpcb_cpl(&pos_text)?;
+        let cpl_csv = out_dir.join(format!("{stem}_cpl.csv"));
+        fs::write(&cpl_csv, &cpl).map_err(|e| e.to_string())?;
+
+        let bom_rows = build_bom_rows(footprints);
+        let bom = bom_to_csv(&bom_rows);
+        let bom_csv = out_dir.join(format!("{stem}_bom.csv"));
+        fs::write(&bom_csv, &bom).map_err(|e| e.to_string())?;
+
+        Ok(ManufacturingFiles {
+            gerber_zip,
+            cpl_csv,
+            bom_csv,
+            bom_rows: bom_rows.len(),
+            cpl_rows: cpl.lines().count().saturating_sub(1),
+            gerber_files: gerber_names,
+        })
+    })();
+
+    let _ = fs::remove_dir_all(&plot_dir);
+    result
+}
+
+fn kicad_cli_bin() -> PathBuf {
+    let from_env = std::env::var_os("KICAD_CLI").map(PathBuf::from);
+    if let Some(p) = from_env {
+        if !p.as_os_str().is_empty() {
+            return p;
+        }
+    }
+    let debian = PathBuf::from("/usr/bin/kicad-cli");
+    if debian.is_file() {
+        debian
+    } else {
+        PathBuf::from("kicad-cli")
+    }
+}
+
+fn run_kicad_cli(args: &[&str]) -> Result<(), String> {
+    let bin = kicad_cli_bin();
+    let out = Command::new(&bin)
+        .args(args)
+        .output()
+        .map_err(|e| format!("couldn't run {}: {e} (install the kicad package)", bin.display()))?;
+    if out.status.success() {
+        return Ok(());
+    }
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    Err(format!(
+        "{} {} failed: {}{}",
+        bin.display(),
+        args.join(" "),
+        stderr.trim(),
+        if stdout.trim().is_empty() {
+            String::new()
+        } else {
+            format!(" ({})", stdout.trim())
+        }
+    ))
+}
+
+fn collect_plot_files(dir: &Path) -> Result<Vec<String>, String> {
+    let mut names = Vec::new();
+    for entry in fs::read_dir(dir).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let ext = path
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if PLOT_EXTS.contains(&ext.as_str()) {
+            names.push(
+                path.file_name()
+                    .and_then(|s| s.to_str())
+                    .ok_or("plot file name is not UTF-8")?
+                    .to_string(),
+            );
+        }
+    }
+    names.sort();
+    Ok(names)
+}
+
+fn zip_files(dir: &Path, names: &[String], zip_path: &Path) -> Result<(), String> {
+    let file = fs::File::create(zip_path).map_err(|e| e.to_string())?;
+    let mut writer = zip::ZipWriter::new(file);
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+    for name in names {
+        let bytes = fs::read(dir.join(name)).map_err(|e| e.to_string())?;
+        writer
+            .start_file(name, options)
+            .map_err(|e| e.to_string())?;
+        writer.write_all(&bytes).map_err(|e| e.to_string())?;
+    }
+    writer.finish().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+pub fn exclude_from_bom(value: &str) -> bool {
+    value == WIRE_PAD
+        || value == MOUNTING_HOLE_M3
+        || value.starts_with("MountingHole_")
+        || value.starts_with("WirePad_")
+}
+
+/// `C5348912_LED-…` → `C5348912`.
+pub fn lcsc_from_template(value: &str) -> Option<String> {
+    let rest = value.strip_prefix('C')?;
+    let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+    if digits.is_empty() {
+        None
+    } else {
+        Some(format!("C{digits}"))
+    }
+}
+
+fn footprint_column(value: &str) -> String {
+    match value.split_once('_') {
+        Some((_, rest)) if !rest.is_empty() => rest.to_string(),
+        _ => value.to_string(),
+    }
+}
+
+pub fn build_bom_rows(footprints: &[FootprintInfo]) -> Vec<BomRow> {
+    let mut by_key: BTreeMap<(String, String, String), Vec<String>> = BTreeMap::new();
+    for fp in footprints {
+        let Some(reference) = fp.reference.as_deref().filter(|s| !s.is_empty()) else {
+            continue;
+        };
+        let value = fp.value.as_deref().unwrap_or("").trim();
+        if value.is_empty() || exclude_from_bom(value) {
+            continue;
+        }
+        let lcsc = lcsc_from_template(value).unwrap_or_default();
+        let footprint = footprint_column(value);
+        by_key
+            .entry((value.to_string(), footprint, lcsc))
+            .or_default()
+            .push(reference.to_ascii_uppercase());
+    }
+    let mut rows: Vec<BomRow> = by_key
+        .into_iter()
+        .map(|((comment, footprint, lcsc), mut designators)| {
+            designators.sort();
+            BomRow {
+                comment,
+                designators,
+                footprint,
+                lcsc_part_number: lcsc,
+            }
+        })
+        .collect();
+    rows.sort_by(|a, b| a.footprint.cmp(&b.footprint).then(a.comment.cmp(&b.comment)));
+    rows
+}
+
+pub fn csv_field(s: &str) -> String {
+    if s.contains(',') || s.contains('"') || s.contains('\n') {
+        format!("\"{}\"", s.replace('"', "\"\""))
+    } else {
+        s.to_string()
+    }
+}
+
+pub fn bom_to_csv(rows: &[BomRow]) -> String {
+    let mut out = String::from("Comment,Designator,Footprint,LCSC Part #\n");
+    for row in rows {
+        out.push_str(&format!(
+            "{},{},{},{}\n",
+            csv_field(&row.comment),
+            csv_field(&row.designators.join(", ")),
+            csv_field(&row.footprint),
+            csv_field(&row.lcsc_part_number)
+        ));
+    }
+    out
+}
+
+/// KiCad `pcb export pos --format csv` → JLCPCB CPL header.
+pub fn ki_pos_to_jlcpcb_cpl(text: &str) -> Result<String, String> {
+    let mut out = String::from("Designator,Mid X,Mid Y,Layer,Rotation\n");
+    let mut header: Option<Vec<String>> = None;
+    for raw in text.lines() {
+        let line = raw.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let for_header = line.trim_start_matches('#').trim();
+        if for_header.is_empty() {
+            continue;
+        }
+        let header_cols = parse_csv_line(for_header);
+        let looks_like_header = header_cols.iter().any(|c| {
+            matches!(
+                c.to_ascii_lowercase().as_str(),
+                "ref" | "designator" | "posx" | "mid x" | "side" | "layer"
+            )
+        });
+        if header.is_none() && looks_like_header {
+            header = Some(header_cols.iter().map(|c| c.to_ascii_lowercase()).collect());
+            continue;
+        }
+        if line.starts_with('#') {
+            continue;
+        }
+        let cols = parse_csv_line(line);
+        let Some(ref hdr) = header else {
+            continue;
+        };
+        if cols.len() < hdr.len() {
+            continue;
+        }
+        let get = |name: &str| -> Option<&str> {
+            hdr.iter()
+                .position(|h| h == name)
+                .and_then(|i| cols.get(i))
+                .map(|s| s.as_str())
+        };
+        let designator = get("ref")
+            .or_else(|| get("designator"))
+            .unwrap_or("")
+            .trim();
+        if designator.is_empty() {
+            continue;
+        }
+        if exclude_from_bom(get("val").unwrap_or(""))
+            || exclude_from_bom(get("package").unwrap_or(""))
+        {
+            continue;
+        }
+        let x = get("posx").or_else(|| get("mid x")).unwrap_or("0");
+        let y = get("posy").or_else(|| get("mid y")).unwrap_or("0");
+        let rot = get("rot").or_else(|| get("rotation")).unwrap_or("0");
+        let side = get("side").or_else(|| get("layer")).unwrap_or("top");
+        let layer = match side.trim().to_ascii_lowercase().as_str() {
+            "bottom" | "back" | "b.cu" => "Bottom",
+            _ => "Top",
+        };
+        out.push_str(&format!(
+            "{},{},{},{},{}\n",
+            csv_field(&designator.to_ascii_uppercase()),
+            csv_field(x.trim()),
+            csv_field(y.trim()),
+            layer,
+            csv_field(rot.trim())
+        ));
+    }
+    if header.is_none() {
+        return Err("kicad-cli position file had no CSV header (Ref,Val,Package,PosX,PosY,Rot,Side)".into());
+    }
+    Ok(out)
+}
+
+fn parse_csv_line(line: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    let mut in_quotes = false;
+    let mut chars = line.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '"' => {
+                if in_quotes && chars.peek() == Some(&'"') {
+                    chars.next();
+                    cur.push('"');
+                } else {
+                    in_quotes = !in_quotes;
+                }
+            }
+            ',' if !in_quotes => {
+                out.push(cur.trim().to_string());
+                cur.clear();
+            }
+            _ => cur.push(c),
+        }
+    }
+    out.push(cur.trim().to_string());
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fp(reference: &str, value: &str) -> FootprintInfo {
+        FootprintInfo {
+            id: None,
+            reference: Some(reference.into()),
+            value: Some(value.into()),
+            x_mm: Some(0.0),
+            y_mm: Some(0.0),
+            rotation_deg: Some(0.0),
+            layer: "F.Cu".into(),
+            pad_count: 2,
+        }
+    }
+
+    #[test]
+    fn lcsc_from_easyeda_template() {
+        assert_eq!(
+            lcsc_from_template("C5348912_LED-SMD_4P-L5.0-W4.9-BR").as_deref(),
+            Some("C5348912")
+        );
+        assert_eq!(lcsc_from_template("C14663_C0603").as_deref(), Some("C14663"));
+        assert_eq!(lcsc_from_template("WirePad_PTH"), None);
+    }
+
+    #[test]
+    fn bom_groups_and_skips_builtins() {
+        let rows = build_bom_rows(&[
+            fp("C2", "C14663_C0603"),
+            fp("C1", "C14663_C0603"),
+            fp("H1", "MountingHole_M3_NPTH"),
+            fp("W1", "WirePad_PTH"),
+            fp("D1", "C5348912_LED-SMD_4P-L5.0-W4.9-BR"),
+        ]);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].designators, vec!["C1".to_string(), "C2".to_string()]);
+        assert_eq!(rows[0].lcsc_part_number, "C14663");
+        assert_eq!(rows[0].footprint, "C0603");
+        assert_eq!(rows[1].lcsc_part_number, "C5348912");
+        let csv = bom_to_csv(&rows);
+        assert!(csv.starts_with("Comment,Designator,Footprint,LCSC Part #\n"));
+        assert!(csv.contains("C1, C2"));
+        assert!(!csv.contains("WirePad"));
+        assert!(!csv.contains("MountingHole"));
+    }
+
+    #[test]
+    fn cpl_rewrites_quoted_kicad_pos() {
+        let ki = "Ref,Val,Package,PosX,PosY,Rot,Side\n\"C1\",\"C14663_C0603\",\"C14663_C0603\",10.5,-20.25,90.0,top\n";
+        let cpl = ki_pos_to_jlcpcb_cpl(ki).unwrap();
+        assert!(cpl.contains("C1,10.5,-20.25,Top,90.0"));
+    }
+
+    #[test]
+    fn cpl_rewrites_kicad_pos_header() {
+        let ki = "\
+# Footprint positions
+# Ref,Val,Package,PosX,PosY,Rot,Side
+C1,C14663_C0603,C14663_C0603,10.5,-20.25,90.0,top
+D1,C5348912_LED,C5348912_LED,0,0,0,bottom
+H1,MountingHole_M3_NPTH,MountingHole_M3_NPTH,1,2,0,top
+";
+        let cpl = ki_pos_to_jlcpcb_cpl(ki).unwrap();
+        assert!(cpl.starts_with("Designator,Mid X,Mid Y,Layer,Rotation\n"));
+        assert!(cpl.contains("C1,10.5,-20.25,Top,90.0"));
+        assert!(cpl.contains("D1,0,0,Bottom,0"));
+        assert!(!cpl.contains("H1"));
+    }
+
+    #[test]
+    fn plots_test1_board_if_present() {
+        let pcb = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../kicad_projekte/test1/test1.kicad_pcb");
+        if !pcb.is_file() {
+            return;
+        }
+        let tmp = std::env::temp_dir().join("kicad-mcp-fab-unit");
+        let _ = fs::remove_dir_all(&tmp);
+        let files = export_manufacturing(&pcb, &tmp, &[fp("C1", "C14663_C0603")]).expect("plot");
+        assert!(files.gerber_zip.is_file(), "{}", files.gerber_zip.display());
+        assert!(files.cpl_csv.is_file());
+        assert!(files.bom_csv.is_file());
+        assert!(files.gerber_files.iter().any(|n| n.ends_with(".gtl")));
+        assert!(files.gerber_files.iter().any(|n| n.ends_with(".drl")));
+        let cpl = fs::read_to_string(&files.cpl_csv).unwrap();
+        assert!(cpl.starts_with("Designator,Mid X,Mid Y,Layer,Rotation\n"));
+        assert!(cpl.lines().count() > 10, "expected many CPL rows, got {}", cpl.lines().count());
+        let zip_size = fs::metadata(&files.gerber_zip).unwrap().len();
+        assert!(zip_size > 10_000, "gerber zip too small: {zip_size}");
+    }
+}

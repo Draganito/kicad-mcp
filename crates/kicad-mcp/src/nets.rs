@@ -2,9 +2,8 @@
 //! footprint — KiCad rejects a free pad: "Tried to create a pad in UNDEFINED").
 //!
 //! Nested pad payloads are spliced in place so padstack geometry survives.
-//! KiCad 9.0.2 accepts the update but does **not** persist `Pad.net` or
-//! `Track.net` (GetNets stays empty, pad net_code becomes -1). KiCad 10 is
-//! the intended target. On 9, assign nets in the PCB editor after placing.
+//! KiCad 10 persists `Pad.net` / `Track.net` after UpdateItems. KiCad 9.0.2
+//! accepted the call but dropped the net on save — do not use 9 for nets.
 
 use std::collections::HashMap;
 
@@ -349,7 +348,7 @@ mod live {
                 if u1.net_name.as_deref() != Some("5V") {
                     eprintln!(
                         "KiCad IPC did not persist Pad.net (U1.2 net_name={:?} net_code={:?}). \
-                         Known on 9.0.2 — assign nets in the GUI or use KiCad 10.",
+                         Need KiCad 10 (`~/Programme/kicad-10.sh`).",
                         u1.net_name, u1.net_code
                     );
                     return;

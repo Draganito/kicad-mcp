@@ -125,7 +125,7 @@ async fn smoke_new_tools() {
             ));
             if !persisted {
                 report.push(
-                    "NOTE: KiCad 9.0.2 IPC does not persist Pad.net — assign nets in the GUI or use KiCad 10."
+                    "NOTE: Pad.net did not persist — start KiCad 10 via ~/Programme/kicad-10.sh."
                         .into(),
                 );
             }
@@ -164,4 +164,75 @@ async fn smoke_new_tools() {
     for line in &report {
         eprintln!("  {line}");
     }
+}
+
+#[tokio::test]
+#[ignore = "needs a running KiCad PCB editor with IPC API"]
+async fn export_manufacturing_to_project() {
+    let k = Kicad::connect().await.expect("KiCad IPC");
+    let _ = k.refill_all_zones().await;
+    k.save().await.expect("save");
+    let board = k.board_file_path().await.expect("board path");
+    let dir = k.project_dir().await.expect("project dir");
+    let fps = k.footprints().await.expect("footprints");
+    let files = kicad_mcp::fab::export_manufacturing(&board, &dir, &fps).expect("export");
+    eprintln!("gerber_zip={}", files.gerber_zip.display());
+    eprintln!("bom_csv={} rows={}", files.bom_csv.display(), files.bom_rows);
+    eprintln!("cpl_csv={} rows={}", files.cpl_csv.display(), files.cpl_rows);
+    assert!(files.gerber_zip.is_file());
+    assert!(files.bom_rows >= 1);
+    assert!(files.cpl_rows >= 1);
+}
+
+#[tokio::test]
+#[ignore = "needs a running KiCad PCB editor with IPC API"]
+async fn assign_vias_gnd_and_refill() {
+    use kicad_ipc_rs::PcbObjectTypeCode;
+    use kicad_mcp::proto_wire::{encode_net, set_len_field};
+    use prost_types::Any;
+
+    let k = Kicad::connect().await.expect("KiCad IPC");
+    let raw = k
+        .raw_items(vec![PcbObjectTypeCode::new_via().code])
+        .await
+        .expect("raw vias");
+    assert!(!raw.is_empty(), "no vias on the board");
+    let payload = encode_net("GND", 1);
+    let patched: Vec<Any> = raw
+        .into_iter()
+        .map(|item| {
+            let value = set_len_field(&item.value, 5, &payload).expect("splice Via.net");
+            Any {
+                type_url: item.type_url,
+                value,
+            }
+        })
+        .collect();
+    let n = patched.len();
+    let session = k.begin_commit().await.expect("commit");
+    match k.update_items(patched).await {
+        Ok(updated) => {
+            k.end_commit(session, "kicad-mcp vias → GND")
+                .await
+                .expect("end");
+            eprintln!("updated {updated} vias (sent {n})");
+        }
+        Err(e) => {
+            let _ = k.drop_commit(session).await;
+            panic!("UpdateItems vias: {e}");
+        }
+    }
+    k.refill_all_zones().await.expect("refill (B)");
+    let _ = k.refresh().await;
+    let vias = k.vias().await.expect("vias after");
+    let gnd = vias
+        .iter()
+        .filter(|v| v.net.as_deref() == Some("GND"))
+        .count();
+    let nets = k.nets().await.expect("nets");
+    eprintln!(
+        "after: via_net_gnd={gnd}/{} nets={:?}",
+        vias.len(),
+        nets.iter().map(|n| &n.name).collect::<Vec<_>>()
+    );
 }

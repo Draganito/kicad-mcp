@@ -28,6 +28,7 @@ serde_json.workspace = true
 tokio = { version = "1.53", features = ["rt-multi-thread", "macros", "sync", "signal", "io-std"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 tokio = { version = "1.53", features = ["rt-multi-thread", "macros"] }

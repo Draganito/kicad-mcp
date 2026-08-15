@@ -46,7 +46,7 @@ impl KicadMcp {
     }
 
     #[tool(
-        description = "Live KiCad board overview: version, project path, copper layers, footprint/net/track/via/zone counts. Start here. Needs KiCad running with IPC API enabled."
+        description = "Live KiCad board overview: version, net_ipc_persists, project path, copper layers, footprint/net/track/via/zone counts. Start here. Target is KiCad 10 (net_ipc_persists true). If the version is 9.x, tell the user to start ~/Programme/kicad-10.sh — do not assign nets in the GUI. Needs IPC API enabled."
     )]
     async fn board_summary(&self) -> Result<CallToolResult, McpError> {
         match self.client().await {
@@ -436,7 +436,7 @@ impl KicadMcp {
     }
 
     #[tool(
-        description = "Join two pads onto one net (Pad.net via UpdateItems of the parent footprint). ref1/pin1 and ref2/pin2 are like U1 and 2. Optional net names a new one (e.g. \"5V\", \"GND\"). Daisy-chain hops omit net. KiCad 9.0.2 accepts the call but does not persist Pad.net — assign nets in the GUI there, or use KiCad 10. Not copper — use add_track / set_copper_zone after."
+        description = "Join two pads onto one net (Pad.net via UpdateItems of the parent footprint). ref1/pin1 and ref2/pin2 are like U1 and 2. Optional net names a new one (e.g. \"5V\", \"GND\"). Daisy-chain hops omit net. Persists on KiCad 10. Not copper — use add_track / set_copper_zone after."
     )]
     async fn connect_pins(
         &self,
@@ -772,6 +772,44 @@ impl KicadMcp {
         })
         .await
     }
+
+    #[tool(
+        description = "JLCPCB manufacturing bundle like Alladin: refill zones, save, then write <stem>_gerbers.zip (Gerber + Excellon drill via kicad-cli; silkscreen has no refdes/value text — avoids JLCPCB silk-to-pad DFM), <stem>_cpl.csv (pick & place), <stem>_bom.csv (LCSC). Upload the zip as Gerbers and the two CSVs as BOM/CPL on jlcpcb.com. Optional out_dir (default: project folder). Needs kicad-cli on PATH."
+    )]
+    async fn export_manufacturing(
+        &self,
+        Parameters(args): Parameters<ExportManufacturingArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        if let Some(refusal) = self.require_write() {
+            return refusal;
+        }
+        with_kicad(self, move |k| async move {
+            let _ = k.refill_all_zones().await;
+            k.save().await?;
+            let board = k.board_file_path().await?;
+            let footprints = k.footprints().await?;
+            let out_dir = match args.out_dir.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+                Some(dir) => std::path::PathBuf::from(dir),
+                None => k.project_dir().await?,
+            };
+            let files = tokio::task::spawn_blocking(move || {
+                crate::fab::export_manufacturing(&board, &out_dir, &footprints)
+            })
+            .await
+            .map_err(|e| e.to_string())??;
+            Ok(serde_json::json!({
+                "ok": true,
+                "gerber_zip": files.gerber_zip,
+                "cpl_csv": files.cpl_csv,
+                "bom_csv": files.bom_csv,
+                "bom_rows": files.bom_rows,
+                "cpl_rows": files.cpl_rows,
+                "gerber_files": files.gerber_files,
+                "note": "JLCPCB: upload gerber_zip as PCB Gerbers, bom_csv as BOM, cpl_csv as CPL / centroid.",
+            }))
+        })
+        .await
+    }
 }
 
 async fn with_kicad<F, Fut, T>(mcp: &KicadMcp, f: F) -> Result<CallToolResult, McpError>
@@ -959,6 +997,12 @@ fn courtyard_of_template(pretty_dir: &std::path::Path, template: &str) -> Option
         .or_else(|| crate::place::parse_kicad_mod_pads(&text).ok().map(|p| crate::place::pads_aabb(&p)))
 }
 
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+pub struct ExportManufacturingArgs {
+    /// Destination folder. Default: the open KiCad project directory.
+    pub out_dir: Option<String>,
+}
+
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct LcscArgs {
     /// e.g. `"C25804"` or `"C2980298"`.
@@ -1128,13 +1172,14 @@ async fn commit_connect(
 impl ServerHandler for KicadMcp {
     fn get_info(&self) -> ServerInfo {
         let write_note = if self.allow_ai_write {
-            "Write tools are ENABLED (--allow-ai-write): download_lcsc_part, place_footprint, place_parts, place_matrix, remove_footprint, clear_board, set_board_outline, connect_pins, connect_many, add_track, add_tracks, add_via, add_vias, set_copper_zone, ripup_wire, save_board."
+            "Write tools are ENABLED (--allow-ai-write): download_lcsc_part, place_footprint, place_parts, place_matrix, remove_footprint, clear_board, set_board_outline, connect_pins, connect_many, add_track, add_tracks, add_via, add_vias, set_copper_zone, ripup_wire, save_board, export_manufacturing."
         } else {
             "Write tools are DISABLED. Relaunch with --allow-ai-write."
         };
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build()).with_instructions(
             format!(
-                "Mini MCP for a running KiCad PCB editor (IPC API). \
+                "Mini MCP for a running KiCad 10 PCB editor (IPC API). \
+             Start KiCad 10 via ~/Programme/kicad-10.sh (not the AppImage, not system KiCad 9). \
              KiCad must be open with Preferences → Plugins → Enable IPC API. \
              Coordinates are KiCad native millimetres (origin = board origin, +x right, +y up). \
              LCSC parts come from EasyEDA so JLCPCB footprints match. WirePad_PTH and MountingHole_M3_NPTH \
@@ -1146,7 +1191,9 @@ impl ServerHandler for KicadMcp {
              Darkroom panel: darkroom_led_panel_4x5_slim.json (~153 mm round, 109 LEDs). \
              clear_board, set_board_outline with points, place_parts, connect_many, add_tracks/add_vias, set_copper_zone. \
              No move_footprint (remove then place). Copper: get_routing_scene then ripup_wire with segment_id. \
-             No autorouter. Do not edit .kicad_pcb by hand. {write_note}"
+             No autorouter. Do not edit .kicad_pcb by hand. \
+             export_manufacturing writes JLCPCB files: <stem>_gerbers.zip + _bom.csv + _cpl.csv (needs kicad-cli). \
+             {write_note}"
             ),
         )
     }
