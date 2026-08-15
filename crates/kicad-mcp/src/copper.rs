@@ -14,6 +14,13 @@ const PST_FRONT_INNER_BACK: i32 = 2;
 const ZT_COPPER: i32 = 1;
 const ZFM_SOLID: i32 = 1;
 const IRM_NEVER: i32 = 2;
+const ZCS_THERMAL: i32 = 3;
+const ZCS_PTH_THERMAL: i32 = 5;
+/// 5V SMD thermals (JLCPCB HASL / no tombstone).
+const THERMAL_SPOKE_NM: i64 = 300_000;
+const THERMAL_GAP_NM: i64 = 500_000;
+/// GND wire-pad PTH: wider spokes, vias stay solid (`ZCS_PTH_THERMAL`).
+const GND_PTH_SPOKE_NM: i64 = 500_000;
 
 const TYPE_TRACK: &str = "type.googleapis.com/kiapi.board.types.Track";
 const TYPE_VIA: &str = "type.googleapis.com/kiapi.board.types.Via";
@@ -272,6 +279,7 @@ fn poly_zone_any(
         name: name.unwrap_or(net).to_string(),
         locked: LS_UNLOCKED,
         settings: Some(zone::Settings::CopperSettings(CopperZoneSettings {
+            connection: zone_pad_connection(net),
             clearance: Some(Distance {
                 value_nm: ZONE_CLEARANCE_NM,
             }),
@@ -284,6 +292,23 @@ fn poly_zone_any(
         })),
     };
     Ok(pack(&zone, TYPE_ZONE))
+}
+
+fn zone_pad_connection(net: &str) -> Option<ZoneConnectionSettings> {
+    let (style, spoke_nm) = match net {
+        "5V" => (ZCS_THERMAL, THERMAL_SPOKE_NM),
+        "GND" => (ZCS_PTH_THERMAL, GND_PTH_SPOKE_NM),
+        _ => return None,
+    };
+    Some(ZoneConnectionSettings {
+        zone_connection: style,
+        thermal_spokes: Some(ThermalSpokeSettings {
+            width: Some(Distance { value_nm: spoke_nm }),
+            gap: Some(Distance {
+                value_nm: THERMAL_GAP_NM,
+            }),
+        }),
+    })
 }
 
 fn net_msg(name: &str, code: i32) -> Net {
@@ -429,7 +454,25 @@ struct PolySet {
 }
 
 #[derive(Clone, PartialEq, Message)]
+struct ThermalSpokeSettings {
+    #[prost(message, optional, tag = "1")]
+    width: Option<Distance>,
+    #[prost(message, optional, tag = "3")]
+    gap: Option<Distance>,
+}
+
+#[derive(Clone, PartialEq, Message)]
+struct ZoneConnectionSettings {
+    #[prost(int32, tag = "1")]
+    zone_connection: i32,
+    #[prost(message, optional, tag = "2")]
+    thermal_spokes: Option<ThermalSpokeSettings>,
+}
+
+#[derive(Clone, PartialEq, Message)]
 struct CopperZoneSettings {
+    #[prost(message, optional, tag = "1")]
+    connection: Option<ZoneConnectionSettings>,
     #[prost(message, optional, tag = "2")]
     clearance: Option<Distance>,
     #[prost(message, optional, tag = "3")]
@@ -506,5 +549,33 @@ mod tests {
             .nodes
             .len();
         assert_eq!(n, 4);
+    }
+
+    #[test]
+    fn fivev_zone_uses_thermal_relief() {
+        let any = rect_zone_any(0.0, 0.0, 40.0, 30.0, BL_F_CU, "5V", None).unwrap();
+        let z = Zone::decode(any.value.as_slice()).unwrap();
+        let Some(zone::Settings::CopperSettings(s)) = z.settings else {
+            panic!("expected copper settings");
+        };
+        let conn = s.connection.expect("5V zone must set pad connection");
+        assert_eq!(conn.zone_connection, ZCS_THERMAL);
+        let spokes = conn.thermal_spokes.expect("thermal spokes");
+        assert_eq!(spokes.width.unwrap().value_nm, THERMAL_SPOKE_NM);
+        assert_eq!(spokes.gap.unwrap().value_nm, THERMAL_GAP_NM);
+    }
+
+    #[test]
+    fn gnd_zone_uses_pth_thermal() {
+        let any = rect_zone_any(0.0, 0.0, 40.0, 30.0, BL_B_CU, "GND", None).unwrap();
+        let z = Zone::decode(any.value.as_slice()).unwrap();
+        let Some(zone::Settings::CopperSettings(s)) = z.settings else {
+            panic!("expected copper settings");
+        };
+        let conn = s.connection.expect("GND zone must set pad connection");
+        assert_eq!(conn.zone_connection, ZCS_PTH_THERMAL);
+        let spokes = conn.thermal_spokes.expect("thermal spokes");
+        assert_eq!(spokes.width.unwrap().value_nm, GND_PTH_SPOKE_NM);
+        assert_eq!(spokes.gap.unwrap().value_nm, THERMAL_GAP_NM);
     }
 }

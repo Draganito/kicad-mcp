@@ -283,7 +283,7 @@ impl KicadMcp {
     }
 
     #[tool(
-        description = "Rip copper. Pass segment_id (tracks[].id or vias[].id from get_routing_scene) to delete that one item. Ctrl+Z undoes."
+        description = "Rip copper. Pass segment_id (one track/via id from get_routing_scene) or segment_ids (max 500). Ctrl+Z undoes."
     )]
     async fn ripup_wire(
         &self,
@@ -293,15 +293,31 @@ impl KicadMcp {
             return refusal;
         }
         with_kicad(self, move |k| async move {
-            let Some(id) = args.segment_id.clone() else {
-                return Err("ripup_wire currently needs segment_id from get_routing_scene (one track or via)".into());
-            };
+            let mut ids: Vec<String> = args.segment_ids.unwrap_or_default();
+            if let Some(id) = args.segment_id {
+                if !id.trim().is_empty() {
+                    ids.push(id);
+                }
+            }
+            ids.retain(|id| !id.trim().is_empty());
+            if ids.is_empty() {
+                return Err(
+                    "ripup_wire needs segment_id or segment_ids from get_routing_scene".into(),
+                );
+            }
+            if ids.len() > 500 {
+                return Err(format!("ripup_wire max 500 ids (got {})", ids.len()));
+            }
             let session = k.begin_commit().await?;
-            match k.delete_ids(vec![id.clone()]).await {
+            match k.delete_ids(ids).await {
                 Ok(deleted) => {
                     k.end_commit(session, "kicad-mcp ripup").await?;
                     let _ = k.refresh().await;
-                    Ok(serde_json::json!({ "ok": true, "deleted_ids": deleted }))
+                    Ok(serde_json::json!({
+                        "ok": true,
+                        "deleted": deleted.len(),
+                        "deleted_ids": deleted
+                    }))
                 }
                 Err(e) => {
                     let _ = k.drop_commit(session).await;
@@ -754,7 +770,7 @@ impl KicadMcp {
     }
 
     #[tool(
-        description = "Create a copper zone (pour) and refill. net is required (5V or GND). layer is F.Cu or B.Cu (default F.Cu). Rectangle: origin_x_mm/origin_y_mm/width_mm/height_mm (origin = bottom-left). Polygon: points [{x_mm, y_mm}, ...] in KiCad millimetres. Pads should already sit on that net via connect_pins. Ctrl+Z undoes."
+        description = "Create a copper zone (pour) and refill. net is required (5V or GND). layer is F.Cu or B.Cu (default F.Cu). 5V pads always get thermal relief (never solid) for JLCPCB HASL/SMT. Rectangle: origin+size. Polygon: points. Pads should already sit on that net via connect_pins. Ctrl+Z undoes."
     )]
     async fn set_copper_zone(
         &self,
@@ -1130,6 +1146,7 @@ pub struct RefArgs {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct RipupArgs {
     pub segment_id: Option<String>,
+    pub segment_ids: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]

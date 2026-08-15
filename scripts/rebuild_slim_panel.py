@@ -17,8 +17,7 @@ from pathlib import Path
 ROOT = Path("/home/dragan/Dokumente/Projekte/PlatformIO/kicad-mcp")
 BIN = ROOT / "target/debug/kicad-mcp"
 JSON = ROOT / "kicad_projekte/test1/slim_panel_kicad.json"
-PRETTY = ROOT / "kicad_projekte/test1/test2/jlcpcb_parts.pretty"
-OUT = str(ROOT / "kicad_projekte/test1/test2/gerbers")
+PRETTY = ROOT / "kicad_projekte/led_panel_4x5_test2/jlcpcb_parts.pretty"
 
 
 class Mcp:
@@ -115,16 +114,18 @@ LED_DATA = {"2", "4"}
 
 
 def assign_pads(src: dict) -> dict[tuple[str, str], str]:
-    """Map (ref, pin) → net. LED power from EasyEDA pin names; vias stay GND."""
+    """Map (ref, pin) → net. Cap GND = pad closer to companion LED pin 1.
+
+    JSON via coordinates are not used — stitch_via places those later.
+    """
     locals_: dict[str, dict[str, tuple[float, float]]] = {}
     for p in PRETTY.glob("*.kicad_mod"):
         locals_[p.stem] = pads_from_mod(p.read_text())
 
     pad_pos: list[tuple[str, str, float, float, str]] = []
     by_ref: dict[str, list[str]] = defaultdict(list)
-    tmpl_of: dict[str, str] = {}
+    world: dict[tuple[str, str], tuple[float, float]] = {}
     for part in src["parts"]:
-        tmpl_of[part["reference"]] = part["template"]
         loc = locals_.get(part["template"]) or {}
         if not loc and "WirePad" in part["template"]:
             loc = {"1": (0.0, 0.0)}
@@ -132,10 +133,10 @@ def assign_pads(src: dict) -> dict[tuple[str, str], str]:
             loc = {"1": (0.0, 0.0)}
         for num, (lx, ly) in loc.items():
             wx, wy = rot(lx, ly, part["rotation_deg"])
-            pad_pos.append(
-                (part["reference"], num, part["x_mm"] + wx, part["y_mm"] + wy, part["template"])
-            )
+            xy = (part["x_mm"] + wx, part["y_mm"] + wy)
+            pad_pos.append((part["reference"], num, xy[0], xy[1], part["template"]))
             by_ref[part["reference"]].append(num)
+            world[(part["reference"], num)] = xy
 
     def nearest(
         x: float, y: float, maxd: float, allow: set[tuple[str, str]] | None = None
@@ -160,34 +161,38 @@ def assign_pads(src: dict) -> dict[tuple[str, str], str]:
             return
         nets[key] = net
 
-    # 1) LED power from the EasyEDA pinout — never from a nearby data track.
-    for part in src["parts"]:
-        if "C5348912" not in part["template"]:
-            continue
-        ref = part["reference"]
+    leds = [p for p in src["parts"] if "C5348912" in p["template"]]
+    for part in leds:
         for pin, net in LED_POWER.items():
-            nets[(ref, pin)] = net
+            nets[(part["reference"], pin)] = net
 
-    # 2) Vias + GND stubs: LED pad 1, cap GND, TVS anode, W227.
-    power_ok = {(ref, pin) for (ref, pin), net in nets.items() if net == "GND"}
+    # Cap pad nearer the companion LED's GND (pin 1) is GND; the other is 5V.
+    for cap in (p for p in src["parts"] if "C14663" in p["template"]):
+        led = min(
+            leds,
+            key=lambda u: math.hypot(u["x_mm"] - cap["x_mm"], u["y_mm"] - cap["y_mm"]),
+        )
+        gnd = world[(led["reference"], "1")]
+        pins = by_ref[cap["reference"]]
+        closer = min(
+            pins,
+            key=lambda n: math.hypot(
+                world[(cap["reference"], n)][0] - gnd[0],
+                world[(cap["reference"], n)][1] - gnd[1],
+            ),
+        )
+        for pin in pins:
+            nets[(cap["reference"], pin)] = "GND" if pin == closer else "5V"
+
     for part in src["parts"]:
-        ref, tmpl = part["reference"], part["template"]
-        if "C14663" in tmpl or "C502527" in tmpl or "WirePad" in tmpl:
-            for pin in by_ref.get(ref, []):
-                power_ok.add((ref, pin))
-    for v in src["vias"]:
-        hit = nearest(v["x_mm"], v["y_mm"], 1.6, power_ok)
-        if hit:
-            set_net(hit[0], hit[1], "GND")
-    for t in src["tracks"]:
-        if t["net"] != "GND":
-            continue
-        for x, y in ((t["a_x_mm"], t["a_y_mm"]), (t["b_x_mm"], t["b_y_mm"])):
-            hit = nearest(x, y, 1.2, power_ok)
-            if hit:
-                set_net(hit[0], hit[1], "GND")
+        if "C502527" in part["template"]:
+            nets.setdefault((part["reference"], "1"), "GND")
+            nets.setdefault((part["reference"], "2"), "Net1")
 
-    # 3) Data tracks only onto DIN/DOUT (LED 2/4), W228, TVS cathode.
+    nets[("W226", "1")] = "5V"
+    nets[("W227", "1")] = "GND"
+    nets[("W228", "1")] = "Net1"
+
     data_ok: set[tuple[str, str]] = set()
     for part in src["parts"]:
         ref, tmpl = part["reference"], part["template"]
@@ -205,24 +210,6 @@ def assign_pads(src: dict) -> dict[tuple[str, str], str]:
             hit = nearest(x, y, 0.9, data_ok)
             if hit and nets.get((hit[0], hit[1])) not in ("GND", "5V"):
                 set_net(hit[0], hit[1], t["net"])
-
-    # 4) Remaining cap / TVS pads: other side of a GND pad is 5V, else keep.
-    for part in src["parts"]:
-        ref, tmpl = part["reference"], part["template"]
-        pins = by_ref.get(ref, [])
-        if "C14663" in tmpl:
-            gnd = [p for p in pins if nets.get((ref, p)) == "GND"]
-            for pin in pins:
-                if (ref, pin) not in nets:
-                    nets[(ref, pin)] = "5V" if gnd else "5V"
-        elif "C502527" in tmpl:
-            nets.setdefault((ref, "1"), "GND")
-            nets.setdefault((ref, "2"), "Net1")
-
-    # 5) Wire pads (Alladin W226=5V, W227=GND, W228=DIN).
-    nets[("W226", "1")] = "5V"
-    nets[("W227", "1")] = "GND"
-    nets[("W228", "1")] = "Net1"
 
     return nets
 
@@ -269,6 +256,7 @@ def main() -> None:
         for p in src["parts"]
     ]
     pairs = pairs_from_nets(nets)
+    # Data hops only. GND stubs come from stitch_via, not JSON vias/tracks.
     tracks = [
         {
             "a_x_mm": t["a_x_mm"],
@@ -280,16 +268,7 @@ def main() -> None:
             "width_mm": t["width_mm"],
         }
         for t in src["tracks"]
-    ]
-    vias = [
-        {
-            "x_mm": v["x_mm"],
-            "y_mm": v["y_mm"],
-            "net": "GND",
-            "drill_mm": v["drill_mm"],
-            "size_mm": v["size_mm"],
-        }
-        for v in src["vias"]
+        if t["net"] not in ("GND", "5V")
     ]
 
     mcp = Mcp()
@@ -302,16 +281,32 @@ def main() -> None:
             print(f"connect {i}", mcp.tool("connect_many", {"pairs": batch}), flush=True)
         for i, batch in enumerate(chunks(tracks, 150), 1):
             print(f"tracks {i}", mcp.tool("add_tracks", {"tracks": batch}), flush=True)
-        for i, batch in enumerate(chunks(vias, 150), 1):
-            print(f"vias {i}", mcp.tool("add_vias", {"vias": batch}), flush=True)
+
+        scene = mcp.tool("get_routing_scene")
+        print("before stitch vias", len(scene.get("vias") or []), flush=True)
+        stitch = mcp.tool("stitch_via", {"net": "GND"})
+        print(
+            "stitch_via",
+            {
+                "ok": stitch.get("ok"),
+                "placed": stitch.get("placed_count"),
+                "skipped": len(stitch.get("skipped") or []),
+                "failed": len(stitch.get("failed") or []),
+            },
+            flush=True,
+        )
+        for item in (stitch.get("failed") or [])[:20]:
+            print("  fail", item, flush=True)
+        for item in (stitch.get("skipped") or [])[:10]:
+            print("  skip", item, flush=True)
 
         scene = mcp.tool("get_routing_scene")
         via_nets = Counter(v.get("net") for v in scene["vias"])
         track_nets = Counter(t.get("net") for t in scene["tracks"])
         print("via nets", dict(via_nets), flush=True)
         print("track GND/5V", track_nets.get("GND"), "GND", track_nets.get("5V"), "5V", flush=True)
-        if via_nets.get("GND", 0) < 200:
-            raise SystemExit(f"vias not GND before pour: {dict(via_nets)}")
+        if via_nets.get("GND", 0) < 150:
+            raise SystemExit(f"stitch_via did not place enough GND vias: {dict(via_nets)}")
 
         print("zone 5V", mcp.tool("set_copper_zone", {"net": "5V", "layer": "F.Cu", "name": "5V", "points": pts}), flush=True)
         print("zone GND", mcp.tool("set_copper_zone", {"net": "GND", "layer": "B.Cu", "name": "GND", "points": pts}), flush=True)
@@ -325,9 +320,6 @@ def main() -> None:
         print("check", mcp.tool("check_board"), flush=True)
         if via_nets.get("GND", 0) < 200:
             raise SystemExit(f"vias not GND after pour: {dict(via_nets)}")
-
-        print("export…", flush=True)
-        print(mcp.tool("export_manufacturing", {"out_dir": OUT}), flush=True)
     finally:
         mcp.close()
 

@@ -3,6 +3,7 @@
 //! events on the UI thread and does not want parallel sockets.
 
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use kicad_ipc_rs::client::KiCadClient;
 use kicad_ipc_rs::model::board::{
@@ -104,7 +105,11 @@ pub struct Kicad {
 
 impl Kicad {
     pub async fn connect() -> Result<Self, String> {
-        let client = KiCadClient::connect().await.map_err(fmt_err)?;
+        let client = KiCadClient::builder()
+            .timeout(Duration::from_secs(60))
+            .connect()
+            .await
+            .map_err(fmt_err)?;
         client.ping().await.map_err(fmt_err)?;
         Ok(Self { client })
     }

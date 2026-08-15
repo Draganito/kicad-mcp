@@ -17,11 +17,13 @@ use crate::place::{load_template, world_xy, ModPad, ModPadKind, PlaceSpec};
 const DEFAULT_VIA_DRILL_MM: f64 = 0.3;
 const DEFAULT_VIA_SIZE_MM: f64 = 0.6;
 const DEFAULT_STUB_MM: f64 = 0.25;
-const CLEARANCE_MM: f64 = 0.2;
+/// Pad-edge ↔ via-copper. 0.35 mm meets JLCPCB tented/plug and assembly via-to-SMD.
+const CLEARANCE_MM: f64 = 0.35;
 const STEP_DEG: f64 = 15.0;
 const MAX_DEG: f64 = 90.0;
-/// Same-net via this close to the pad already counts as stitched.
-const ALREADY_MM: f64 = 2.2;
+/// Same-net via this close to *this* pad already counts as stitched.
+/// Keep it pad-local: a neighbour LED via (~2–3 mm) must not skip a cap.
+const ALREADY_MM: f64 = 0.5;
 
 #[derive(Debug, Clone)]
 struct PadGeom {
