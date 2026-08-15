@@ -90,7 +90,7 @@ Read: `board_summary`, `get_footprints`, `get_nets`, `get_routing_scene`,
 Write: `download_lcsc_part`, `place_footprint`, `place_parts`,
 `place_matrix`, `remove_footprint`, `clear_board`, `set_board_outline`,
 `connect_pins`, `connect_many`, `add_track`, `add_tracks`, `add_via`,
-`add_vias`, `set_copper_zone`, `ripup_wire` (by `segment_id`),
+`add_vias`, `stitch_via`, `set_copper_zone`, `ripup_wire` (by `segment_id`),
 `save_board`, `export_manufacturing`.
 
 Coordinates are **KiCad native millimetres** (board origin, +x right,
@@ -107,7 +107,7 @@ Nested pads are not parent-transformed — this crate bakes board
 millimetres into every pad.
 
 `export_manufacturing` needs **kicad-cli** (same KiCad install). It
-saves the open board, then writes Alladin-style JLCPCB files next to
+saves the open board, then writes JLCPCB files next to
 the project: `<name>_gerbers.zip`, `<name>_bom.csv`, `<name>_cpl.csv`.
 Silkscreen in the zip has **no** reference/value text (JLCPCB DFM
 flags those on dense boards); names stay in the BOM and CPL.
@@ -120,7 +120,7 @@ crates/easyeda-kicad  LCSC/EasyEDA → .kicad_mod / .kicad_sym
 contrib/              Cursor MCP config for the .deb
 docs/                 Manuals + architecture notes
 dist/                 Deb build script + LIESMICH.txt
-scripts/              Optional helpers (not shipped in the .deb)
+scripts/              KiCad 10 launcher (not shipped in the .deb)
 ```
 
 ## Credits

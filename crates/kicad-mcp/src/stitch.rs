@@ -1,4 +1,4 @@
-//! Stitching via next to a pin (Alladin's "Add via near pin").
+//! Stitching via next to a pin.
 //!
 //! Places a through-via radially away from the footprint centre, plus a
 //! short stub on F.Cu. Sweeps ±15°…±90° if the natural spot is blocked.

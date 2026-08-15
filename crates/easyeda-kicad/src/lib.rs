@@ -50,7 +50,7 @@ pub enum PadShape {
 pub struct Pad {
     pub number: String,
     pub pin_name: Option<String>,
-    /// EasyEDA / Alladin millimetres: +x right, +y down, origin = footprint head.
+    /// EasyEDA millimetres: +x right, +y down, origin = footprint head.
     pub x_mm: f64,
     pub y_mm: f64,
     pub width_mm: f64,

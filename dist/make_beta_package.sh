@@ -54,7 +54,7 @@ do
     grep -q " $f\$" <<<"$DEB_LISTING" \
         || { echo "ERROR: $f missing in deb"; exit 1; }
 done
-if grep -qE '\.git/|kicad_projekte/|/target/' <<<"$DEB_LISTING"; then
+if grep -qE '\.git/|/target/|\.kicad_pcb' <<<"$DEB_LISTING"; then
     echo "ERROR: source tree or live boards leaked into deb"; exit 1
 fi
 DEB_SIZE=$(stat -c%s "$DEB")

@@ -4,7 +4,7 @@
 //! not parse `.kicad_pcb`). Silk omits footprint reference/value text
 //! (`--exclude-refdes` / `--exclude-value`) so JLCPCB DFM does not flag
 //! silkscreen-to-pad / silkscreen-to-hole on dense boards. BOM and CPL
-//! are rewritten to JLCPCB's CSV columns, matching Alladin:
+//! are rewritten to JLCPCB's CSV columns:
 //! `<stem>_gerbers.zip`, `<stem>_cpl.csv`, `<stem>_bom.csv`.
 
 use std::collections::BTreeMap;
@@ -499,25 +499,4 @@ H1,MountingHole_M3_NPTH,MountingHole_M3_NPTH,1,2,0,top
         assert!(!cpl.contains("H1"));
     }
 
-    #[test]
-    fn plots_test1_board_if_present() {
-        let pcb = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../kicad_projekte/test1/test1.kicad_pcb");
-        if !pcb.is_file() {
-            return;
-        }
-        let tmp = std::env::temp_dir().join("kicad-mcp-fab-unit");
-        let _ = fs::remove_dir_all(&tmp);
-        let files = export_manufacturing(&pcb, &tmp, &[fp("C1", "C14663_C0603")]).expect("plot");
-        assert!(files.gerber_zip.is_file(), "{}", files.gerber_zip.display());
-        assert!(files.cpl_csv.is_file());
-        assert!(files.bom_csv.is_file());
-        assert!(files.gerber_files.iter().any(|n| n.ends_with(".gtl")));
-        assert!(files.gerber_files.iter().any(|n| n.ends_with(".drl")));
-        let cpl = fs::read_to_string(&files.cpl_csv).unwrap();
-        assert!(cpl.starts_with("Designator,Mid X,Mid Y,Layer,Rotation\n"));
-        assert!(cpl.lines().count() > 10, "expected many CPL rows, got {}", cpl.lines().count());
-        let zip_size = fs::metadata(&files.gerber_zip).unwrap().len();
-        assert!(zip_size > 10_000, "gerber zip too small: {zip_size}");
-    }
 }

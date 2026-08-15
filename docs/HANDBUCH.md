@@ -191,7 +191,7 @@ Jeder Write liegt auf KiCads Undo-Stack (**Ctrl+Z**). `save_board` nur
 wenn der Mensch es verlangt.
 
 `export_manufacturing` speichert die offene Platine, füllt Zonen neu
-und schreibt drei Dateien (wie Alladin) ins Projektverzeichnis oder
+und schreibt drei JLCPCB-Dateien ins Projektverzeichnis oder
 nach `out_dir`:
 
 | Datei | JLCPCB-Slot |

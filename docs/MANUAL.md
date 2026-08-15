@@ -186,7 +186,7 @@ Every write lands on KiCad's undo stack (**Ctrl+Z**). Call `save_board`
 only when the human asks.
 
 `export_manufacturing` saves the open board, refills zones, and writes
-three Alladin-style files into the project folder (or `out_dir`):
+three JLCPCB files into the project folder (or `out_dir`):
 
 | File | JLCPCB slot |
 | --- | --- |

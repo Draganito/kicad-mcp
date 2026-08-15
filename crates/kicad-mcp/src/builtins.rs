@@ -1,4 +1,4 @@
-//! Alladin-style mechanical templates that are not LCSC C-numbers.
+//! Mechanical templates that are not LCSC C-numbers.
 //! Written into the open project's `jlcpcb_parts.pretty`.
 
 use std::path::Path;
@@ -23,12 +23,12 @@ pub fn ensure_builtin_footprints(pretty_dir: &Path) -> Result<Vec<String>, Strin
     Ok(written)
 }
 
-/// Historical Alladin "Wire pad (solder, 2mm)": 2.5 mm copper / 1.5 mm drill.
+/// PTH wire pad: 2.5 mm copper / 1.5 mm drill.
 const WIRE_PAD_MOD: &str = r#"(footprint "WirePad_PTH"
 	(version 20240108)
 	(generator "kicad-mcp")
 	(layer "F.Cu")
-	(descr "PTH wire pad 2.5mm copper / 1.5mm drill (Alladin builtin)")
+	(descr "PTH wire pad 2.5mm copper / 1.5mm drill")
 	(tags "wire pad PTH")
 	(attr through_hole exclude_from_bom)
 	(fp_text reference "REF**" (at 0 2.4 unlocked) (layer "F.SilkS")
@@ -50,7 +50,7 @@ const MOUNTING_HOLE_M3_MOD: &str = r#"(footprint "MountingHole_M3_NPTH"
 	(version 20240108)
 	(generator "kicad-mcp")
 	(layer "F.Cu")
-	(descr "M3 mounting hole, 3.2mm NPTH, no copper (Alladin builtin)")
+	(descr "M3 mounting hole, 3.2mm NPTH, no copper")
 	(tags "mounting hole M3 NPTH")
 	(attr exclude_from_bom exclude_from_pos_files)
 	(fp_text reference "REF**" (at 0 3.5 unlocked) (layer "F.SilkS")

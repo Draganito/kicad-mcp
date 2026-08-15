@@ -15,3 +15,8 @@ dist/*.deb
 # Private / local-only (not for the public AGPL tree)
 /.cursor/
 /PUBLISH_CHECKLIST.md
+scripts/__pycache__/
+scripts/extract_slim_panel.py
+scripts/rebuild_slim_panel.py
+scripts/assign_power_nets.py
+scripts/fix_gnd_vias.py

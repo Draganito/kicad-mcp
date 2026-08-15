@@ -7,7 +7,7 @@
 //!    anchor `get_footprints` returns).
 //! 3. Courtyard overlap is rejected in `place_footprint` / `place_parts` / `place_matrix`.
 //! 4. `connect_pins` sets `Pad.net` (UpdateItems). Tracks/vias/zones are CreateItems.
-//! 5. First product milestone: 4×5 SK6812 panel at 12.7 mm, then nets, then copper.
+//! 5. Copper: tracks, vias, stitch vias, then zones.
 
 pub mod builtins;
 pub mod copper;

@@ -55,8 +55,8 @@ recreates, then refills zones. An inner closed Edge.Cuts path is a
 
 `dist/make_beta_package.sh` builds `target/release/kicad-mcp` and runs
 `cargo deb -p kicad-mcp`. The `.deb` ships `/usr/bin/kicad-mcp`, docs,
-and `contrib/cursor-setup`. Live boards under `kicad_projekte/` and
-`.cursor/` (local debug `mcp.json`) stay out of git.
+and `contrib/cursor-setup`. Local KiCad boards and `.cursor/` (debug
+`mcp.json`) stay out of git.
 
 ## Manufacturing export
 
@@ -64,9 +64,9 @@ and `contrib/cursor-setup`. Live boards under `kicad_projekte/` and
 `kicad-cli pcb export gerbers|drill|pos` (KiCad's plotter — this crate
 does not parse `.kicad_pcb`). Gerber silk is plotted with
 `--exclude-refdes` and `--exclude-value` so JLCPCB DFM does not report
-silkscreen-to-pad / silkscreen-to-hole on dense LED grids; designators
+silkscreen-to-pad / silkscreen-to-hole on dense boards; designators
 stay in BOM/CPL only. BOM rows are grouped from live footprints
 (LCSC C-number from the EasyEDA template name). CPL is the KiCad
-position CSV rewritten to JLCPCB columns. Output matches Alladin:
+position CSV rewritten to JLCPCB columns:
 `<stem>_gerbers.zip`, `<stem>_bom.csv`, `<stem>_cpl.csv`.
 

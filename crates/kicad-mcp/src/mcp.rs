@@ -207,7 +207,7 @@ impl KicadMcp {
     }
 
     #[tool(
-        description = "Place many LCSC footprints in one undo (max 150). Each entry: {template, x_mm, y_mm, rotation_deg?, reference?}. All-or-nothing courtyard check against the board and each other. Prefer this (or place_matrix) over N× place_footprint for an LED panel."
+        description = "Place many LCSC footprints in one undo (max 150). Each entry: {template, x_mm, y_mm, rotation_deg?, reference?}. All-or-nothing courtyard check against the board and each other. Prefer this (or place_matrix) over N× place_footprint for grids."
     )]
     async fn place_parts(
         &self,
@@ -220,7 +220,7 @@ impl KicadMcp {
     }
 
     #[tool(
-        description = "Place a rows×cols grid of one LCSC template in one undo (max 150 cells). origin_x_mm/origin_y_mm is cell (0,0); columns go +x, rows go +y. Pitch is centre-to-centre millimetres (Darkroom LEDs: 12.7). Refuses courtyard overlap. Same pad-bake as place_footprint."
+        description = "Place a rows×cols grid of one LCSC template in one undo (max 150 cells). origin_x_mm/origin_y_mm is cell (0,0); columns go +x, rows go +y. Pitch is centre-to-centre millimetres. Refuses courtyard overlap. Same pad-bake as place_footprint."
     )]
     async fn place_matrix(
         &self,
@@ -507,7 +507,7 @@ impl KicadMcp {
     }
 
     #[tool(
-        description = "Join many pad pairs onto nets in one undo (max 150). Each pair: {ref1, pin1, ref2, pin2, net?}. Same rules as connect_pins. Use this for the SK6812 5V/GND star and DOUT→DIN daisy chain."
+        description = "Join many pad pairs onto nets in one undo (max 150). Each pair: {ref1, pin1, ref2, pin2, net?}. Same rules as connect_pins. Use this for power rails and daisy-chained signal hops."
     )]
     async fn connect_many(
         &self,
@@ -743,7 +743,7 @@ impl KicadMcp {
     }
 
     #[tool(
-        description = "Place a stitching via + short F.Cu stub next to a pin, radially away from the part (Alladin-style). Single pin: reference+pin (net optional). Batch: net=\"GND\" stitches every SMD pad on that net that does not already have a same-net via nearby (max 250). Sweeps ±15°…±90° if the natural spot is blocked. Via and stub both refuse pads and tracks (a data line between pad and via skips that angle). Skip PTH/NPTH. 5V pours usually need no vias — use this for GND. drill_mm 0.3, size_mm 0.6, stub 0.25. One undo. Ctrl+Z undoes."
+        description = "Place a stitching via + short F.Cu stub next to a pin, radially away from the part. Single pin: reference+pin (net optional). Batch: net=\"GND\" stitches every SMD pad on that net that does not already have a same-net via nearby (max 250). Sweeps ±15°…±90° if the natural spot is blocked. Via and stub both refuse pads and tracks (a data line between pad and via skips that angle). Skip PTH/NPTH. Power pours on 5V usually need no vias — use this for GND. drill_mm 0.3, size_mm 0.6, stub 0.25. One undo. Ctrl+Z undoes."
     )]
     async fn stitch_via(
         &self,
@@ -863,7 +863,7 @@ impl KicadMcp {
     }
 
     #[tool(
-        description = "JLCPCB manufacturing bundle like Alladin: refill zones, save, then write <stem>_gerbers.zip (Gerber + Excellon drill via kicad-cli; silkscreen has no refdes/value text — avoids JLCPCB silk-to-pad DFM), <stem>_cpl.csv (pick & place), <stem>_bom.csv (LCSC). Upload the zip as Gerbers and the two CSVs as BOM/CPL on jlcpcb.com. Optional out_dir (default: project folder). Needs kicad-cli on PATH."
+        description = "JLCPCB manufacturing bundle: refill zones, save, then write <stem>_gerbers.zip (Gerber + Excellon drill via kicad-cli; silkscreen has no refdes/value text — avoids JLCPCB silk-to-pad DFM), <stem>_cpl.csv (pick & place), <stem>_bom.csv (LCSC). Upload the zip as Gerbers and the two CSVs as BOM/CPL on jlcpcb.com. Optional out_dir (default: project folder). Needs kicad-cli on PATH."
     )]
     async fn export_manufacturing(
         &self,
@@ -1295,8 +1295,7 @@ impl ServerHandler for KicadMcp {
              The pink A4 frame is the drawing sheet, not the PCB. Board size is an Edge.Cuts rectangle \
              (set_board_outline); default origin is the sheet centre, not 0,0. Outline replace defaults to true. \
              Place on free F.CrtYd space inside the board; placement refuses courtyard overlap. \
-             Darkroom panel: darkroom_led_panel_4x5_slim.json (~153 mm round, 109 LEDs). \
-             clear_board, set_board_outline with points, place_parts, connect_many, stitch_via (GND stubs), add_tracks, set_copper_zone. \
+             Typical write path: clear_board, set_board_outline, place_parts or place_matrix, connect_many, stitch_via, add_tracks, set_copper_zone. \
              No move_footprint (remove then place). Copper: get_routing_scene then ripup_wire with segment_id. \
              No autorouter. Do not edit .kicad_pcb by hand. \
              export_manufacturing writes JLCPCB files: <stem>_gerbers.zip + _bom.csv + _cpl.csv (needs kicad-cli). \

@@ -28,7 +28,7 @@ async fn smoke_new_tools() {
     let loaded = place::load_template(&pretty, WIRE_PAD).expect("WirePad_PTH template");
     assert_eq!(loaded.pads.len(), 1);
 
-    // Left of the 4×5 grid, inside the 80×50 mm board (origin ~108.5, 80).
+    // A free spot on the open board (adjust if this board is smaller).
     let x = 112.0;
     let y = 105.0;
     let item = place::footprint_instance_any(&PlaceSpec {
@@ -136,7 +136,7 @@ async fn smoke_new_tools() {
         }
     }
 
-    // Cleanup so the playground stays a 4×5 LED grid (Ctrl+Z also works).
+    // Remove the smoke parts (Ctrl+Z also works).
     let mut drop_ids: Vec<String> = Vec::new();
     if let Some(id) = k.footprint_id_by_reference("W99").await.ok().flatten() {
         drop_ids.push(id);

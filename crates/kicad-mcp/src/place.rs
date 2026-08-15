@@ -12,7 +12,6 @@ use prost_types::Any;
 
 const NM_PER_MM: f64 = 1_000_000.0;
 /// Max cells for `place_matrix` / parts for `place_parts` / pairs for `connect_many`.
-/// 4×5 Darkroom is 20; the 109-LED file on disk needs headroom.
 pub const PLACE_MAX: usize = 150;
 
 const BL_F_CU: i32 = 3;

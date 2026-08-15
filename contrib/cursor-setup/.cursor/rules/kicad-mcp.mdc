@@ -14,7 +14,7 @@ alwaysApply: true
 - Place parts on free space inside the board using F.CrtYd courtyards. Never stack footprints on the same spot or on an Edge.Cuts corner. Placement refuses courtyard overlap.
 - LCSC parts must come from `download_lcsc_part` (EasyEDA geometry). Do not substitute a generic KiCad library footprint for a C-number. Wire pads and M3 holes are builtins: `WirePad_PTH`, `MountingHole_M3_NPTH` (from `list_parts`).
 - `connect_pins` / `connect_many` only assign nets (ratsnest). Copper is `add_track` / `add_tracks` / `add_via` / `add_vias` / `stitch_via` / `set_copper_zone`. `stitch_via` places a GND via + stub next to a pin (`reference`+`pin`) or every SMD pad on a net (`net: "GND"`); it refuses pads and tracks, including a stub that would cross a data line. 5V stays pour-only. There is no autorouter. `ripup_wire` takes `segment_id` from `get_routing_scene`. Do not send parallel copper writes — KiCad `BeginCommit` races.
-- `save_board` only when the human asks. `export_manufacturing` saves, then writes JLCPCB files via `kicad-cli`: `<stem>_gerbers.zip`, `<stem>_bom.csv`, `<stem>_cpl.csv` (Alladin layout). Silk has no U1/C3 refdes (JLCPCB DFM). Needs `kicad-cli` (KiCad package).
+- `save_board` only when the human asks. `export_manufacturing` saves, then writes JLCPCB files via `kicad-cli`: `<stem>_gerbers.zip`, `<stem>_bom.csv`, `<stem>_cpl.csv`. Silk has no U1/C3 refdes (JLCPCB DFM). Needs `kicad-cli` (KiCad package).
 - Every write lands on KiCad's undo stack (Ctrl+Z).
 
 ## How this MCP builds a board (do not regress)
