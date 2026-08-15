@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "kicad-mcp": {
+      "command": "/usr/bin/kicad-mcp",
+      "args": ["--allow-ai-write"]
+    }
+  }
+}

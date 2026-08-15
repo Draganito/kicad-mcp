@@ -1,0 +1,47 @@
+kicad-mcp — Debian-Paket
+========================
+
+Vorkompilierter Linux-Build von kicad-mcp (AGPL-3.0) als .deb-Paket.
+Mini-MCP-Server: steuert einen laufenden KiCad-PCB-Editor aus Cursor
+über die offizielle IPC-API. Footprints kommen von EasyEDA/LCSC, damit
+sie zu JLCPCB passen.
+Quellcode: https://github.com/Draganito/kicad-mcp
+Lizenzhinweise: LICENSE.txt
+
+Installation
+------------
+  sudo apt install ./kicad-mcp_<version>_amd64.deb
+
+Was liegt wo
+------------
+  /usr/bin/kicad-mcp                          MCP-Server (stdio, Linux x86-64)
+  /usr/share/kicad-mcp/cursor-setup/          Cursor-Setup: MCP-Konfig,
+                                              KI-Regeln, .cursorignore
+  /usr/share/doc/kicad-mcp/                   Diese Datei, README,
+                                              LICENSE.txt, docs — darin
+                                              das Handbuch (A-Z):
+                                              docs/HANDBUCH.md (deutsch)
+                                              bzw. docs/MANUAL.md (englisch)
+
+Voraussetzungen
+---------------
+- Debian/Ubuntu x86-64, glibc 2.39+ (ldd --version)
+- KiCad 9 oder 10, PCB-Editor offen
+- In KiCad: Preferences → Plugins → Enable IPC API, dann KiCad neu starten
+
+Start
+-----
+  Cursor startet das Binary selbst (stdio). Inhalt von
+  /usr/share/kicad-mcp/cursor-setup/ (.cursor/ UND .cursorignore)
+  in den Cursor-Projektordner kopieren.
+
+  Schreibzugriff: mcp.json übergibt --allow-ai-write (so vorkonfiguriert).
+  Ohne dieses Flag lehnt jedes Write-Tool ab.
+
+Produkt
+-------
+- Kein zweiter PCB-Editor, kein Autorouter
+- Platine = Edge.Cuts in KiCad; .kicad_pcb nicht von Hand anfassen
+- LCSC-Teile über download_lcsc_part (EasyEDA-Geometrie)
+- Platzieren, Netze, Leiterbahnen, Vias, Kupferzonen über MCP
+- Jeder Write landet auf KiCads Undo-Stack (Ctrl+Z)

@@ -1,0 +1,58 @@
+[package]
+name = "kicad-mcp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Mini MCP server that drives a running KiCad PCB editor over the IPC API"
+
+[lib]
+name = "kicad_mcp"
+path = "src/lib.rs"
+
+[[bin]]
+name = "kicad-mcp"
+path = "src/main.rs"
+
+[dependencies]
+easyeda-kicad = { path = "../easyeda-kicad" }
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+kicad-ipc-rs = "0.5"
+prost = "0.14"
+prost-types = "0.14"
+rmcp = { version = "3.1.0", features = ["server", "macros", "transport-io"] }
+serde.workspace = true
+serde_json.workspace = true
+tokio = { version = "1.53", features = ["rt-multi-thread", "macros", "sync", "signal", "io-std"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+tokio = { version = "1.53", features = ["rt-multi-thread", "macros"] }
+
+# `cargo deb -p kicad-mcp --no-build` — run via dist/make_beta_package.sh.
+[package.metadata.deb]
+maintainer = "Dragan Bojovic <draganito@users.noreply.github.com>"
+copyright = "2026 Dragan Bojovic (kicad-mcp, AGPL-3.0-only)"
+extended-description = """\
+Mini MCP server that drives a running KiCad PCB editor from Cursor
+over KiCad's official IPC API. LCSC/EasyEDA footprints so JLCPCB
+geometry matches. Source: https://github.com/Draganito/kicad-mcp"""
+section = "electronics"
+priority = "optional"
+depends = "$auto"
+recommends = "kicad"
+assets = [
+    ["target/release/kicad-mcp", "usr/bin/", "755"],
+    ["../../README.md", "usr/share/doc/kicad-mcp/", "644"],
+    ["../../dist/LIESMICH.txt", "usr/share/doc/kicad-mcp/", "644"],
+    ["../../LICENSE", "usr/share/doc/kicad-mcp/LICENSE.txt", "644"],
+    ["../../NOTICE", "usr/share/doc/kicad-mcp/", "644"],
+    ["../../docs/**/*", "usr/share/doc/kicad-mcp/docs/", "644"],
+    ["../../ANLEITUNG_FUER_ANFAENGER.md", "usr/share/doc/kicad-mcp/", "644"],
+    ["../../contrib/cursor-setup/.cursor/mcp.json", "usr/share/kicad-mcp/cursor-setup/.cursor/", "644"],
+    ["../../contrib/cursor-setup/.cursor/rules/kicad-mcp.mdc", "usr/share/kicad-mcp/cursor-setup/.cursor/rules/", "644"],
+    ["../../contrib/cursor-setup/.cursorignore", "usr/share/kicad-mcp/cursor-setup/", "644"],
+]

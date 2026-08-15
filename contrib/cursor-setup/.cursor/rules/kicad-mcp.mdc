@@ -1,0 +1,30 @@
+---
+description: Mini MCP surface for a running KiCad PCB editor
+alwaysApply: true
+---
+
+# kicad-mcp — AI working rules
+
+- KiCad must be running with Preferences → Plugins → Enable IPC API.
+- Only these tools exist. Read: `board_summary`, `get_footprints`, `get_nets`, `get_routing_scene`, `list_parts`, `check_board`. Write: `download_lcsc_part`, `place_footprint`, `place_parts`, `place_matrix`, `remove_footprint`, `clear_board`, `set_board_outline`, `connect_pins`, `connect_many`, `add_track`, `add_tracks`, `add_via`, `add_vias`, `set_copper_zone`, `ripup_wire`, `save_board`.
+- Never create, edit, or parse `.kicad_pcb` / `.kicad_sch` by hand — use MCP / the KiCad GUI.
+- Start with `board_summary`. After a batch of changes, `check_board` before reporting done.
+- Write tools need `--allow-ai-write`.
+- Coordinates are millimetres in KiCad's native origin (+x right, +y up). `list_parts` gives the template names `place_footprint` wants. Board size is Edge.Cuts (`set_board_outline`); there is no separate width/height field. Rectangle: omit origin to centre on the A4 drawing sheet. Polygon: `points: [{x_mm, y_mm}, ...]`. `set_board_outline` **replaces** existing Edge.Cuts by default (`replace=false` to add) and refills copper zones.
+- Place parts on free space inside the board using F.CrtYd courtyards. Never stack footprints on the same spot or on an Edge.Cuts corner. Placement refuses courtyard overlap.
+- LCSC parts must come from `download_lcsc_part` (EasyEDA geometry). Do not substitute a generic KiCad library footprint for a C-number. Wire pads and M3 holes are builtins: `WirePad_PTH`, `MountingHole_M3_NPTH` (from `list_parts`).
+- `connect_pins` / `connect_many` only assign nets (ratsnest). Copper is `add_track` / `add_tracks` / `add_via` / `add_vias` / `set_copper_zone`. There is no autorouter. `ripup_wire` takes `segment_id` from `get_routing_scene`. Do not send parallel copper writes — KiCad `BeginCommit` races.
+- `save_board` only when the human asks.
+- Every write lands on KiCad's undo stack (Ctrl+Z).
+
+## How this MCP builds a board (do not regress)
+
+The pink A4 frame is the **drawing sheet**, not the PCB. The PCB is **Edge.Cuts**. That tool **replaces** existing Edge.Cuts unless `replace=false`. KiCad IPC reports the layer as `BL_Edge_Cuts`; replacement matches that name (and layer id 47).
+
+There is no `move_footprint`. Relocate = `remove_footprint` then `place_footprint`. `clear_board` deletes footprints, tracks, vias and zones; Edge.Cuts stays.
+
+KiCad 9 `CreateItems` stores `FootprintInstance.position` (what `get_footprints` reports) but draws nested pads at their raw coordinates. `place.rs` **bakes board millimetres into every pad**. If that bake is removed, copper piles up at the page origin (0,0 / top-left) while the API still claims the part is in the middle.
+
+`connect_pins` splices `Pad.net` (protobuf field 4) into the parent footprint and `UpdateItems` it — do not round-trip the whole padstack or geometry is lost. A free pad UpdateItems is rejected. **KiCad 9.0.2 does not persist Pad.net / Track.net** after a successful IPC update; assign nets in the GUI on 9, or use KiCad 10.
+
+After a `.deb` install, `.cursor/mcp.json` must launch `/usr/bin/kicad-mcp`. From a source tree: the **built binary** (`target/release/kicad-mcp` or `target/debug/kicad-mcp`), not `cargo run`. After Rust changes: rebuild, then toggle the MCP server off/on.

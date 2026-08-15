@@ -1,0 +1,17 @@
+/target
+**/*.rs.bk
+.idea/
+.vscode/
+*.swp
+**/*.bak
+**/*~
+
+# Live KiCad boards (gitignored — never edit .kicad_pcb by hand anyway)
+kicad_projekte/
+
+# Deb build output (templates like LIESMICH.txt stay tracked)
+dist/*.deb
+
+# Private / local-only (not for the public AGPL tree)
+/.cursor/
+/PUBLISH_CHECKLIST.md

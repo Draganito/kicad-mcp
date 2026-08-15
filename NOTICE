@@ -1,0 +1,9 @@
+kicad-mcp
+Copyright (C) 2026 Dragan Bojovic
+
+This program is free software under the GNU Affero General Public License
+v3.0; see the file LICENSE.
+
+KiCad is a separate program (GPL-3.0) and is not shipped in this package.
+This MCP server talks to a KiCad PCB editor you already have installed,
+over KiCad's official IPC API.

@@ -1,0 +1,16 @@
+# KiCad board files are edited EXCLUSIVELY through the kicad-mcp MCP
+# tools — the running KiCad instance owns the board. Hiding the native
+# files from the AI agent closes the bypass: it can neither read nor
+# edit them directly.
+#
+# If your project folder also contains non-board files the AI should
+# see, add a negation line below.
+
+*.kicad_pcb
+*.kicad_sch
+*.kicad_pro
+*.kicad_prl
+*.kicad_mod
+*.kicad_sym
+!.cursor/
+!.cursor/**
