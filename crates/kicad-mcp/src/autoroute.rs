@@ -24,10 +24,22 @@ pub struct AutorouteResult {
     pub track_count: usize,
     pub via_count: usize,
     pub reloaded: bool,
+    pub zones_refilled: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub log_tail: Option<String>,
+}
+
+/// Optional geometry passed through to `route.py`. Omitted values use
+/// JLCPCB-safe floors (0.2 mm clearance, 0.6/0.3 via) and pin the fab
+/// tier so the CLI cannot silently drop to 0.127 mm.
+#[derive(Debug, Default, Clone)]
+pub struct AutorouteOpts {
+    pub track_width_mm: Option<f64>,
+    pub via_size_mm: Option<f64>,
+    pub via_drill_mm: Option<f64>,
+    pub clearance_mm: Option<f64>,
 }
 
 #[derive(Debug)]
@@ -70,11 +82,34 @@ pub fn prepare_nets(raw: &[String]) -> Result<PreparedNets, String> {
     }
     if has_dn && has_dp {
         warnings.push(
-            "USB_DN/USB_DP will be routed as two single-ended nets, not a matched pair"
+            "USB_DN/USB_DP are routed as two singles with --length-match-group \
+             (not route_diff.py)"
                 .into(),
         );
     }
     Ok(PreparedNets { nets, warnings })
+}
+
+pub fn validate_opts(opts: &AutorouteOpts) -> Result<(), String> {
+    if let Some(w) = opts.track_width_mm {
+        if !(0.1..=2.0).contains(&w) {
+            return Err("track_width_mm must be between 0.1 and 2.0".into());
+        }
+    }
+    if let Some(c) = opts.clearance_mm {
+        if !(0.1..=1.0).contains(&c) {
+            return Err("clearance_mm must be between 0.1 and 1.0".into());
+        }
+    }
+    let size = opts.via_size_mm.unwrap_or(0.6);
+    let drill = opts.via_drill_mm.unwrap_or(0.3);
+    if !(0.4..=2.0).contains(&size) {
+        return Err("via_size_mm must be between 0.4 and 2.0".into());
+    }
+    if !(0.2..=1.5).contains(&drill) || drill >= size {
+        return Err("via_drill_mm must be between 0.2 and 1.5 and smaller than via_size_mm".into());
+    }
+    Ok(())
 }
 
 fn blocked_power(name: &str) -> bool {
@@ -158,8 +193,13 @@ fn dirs_home() -> Result<PathBuf, String> {
         .ok_or_else(|| "HOME is not set".into())
 }
 
-pub async fn autoroute_nets(k: &Kicad, raw_nets: &[String]) -> Result<AutorouteResult, String> {
-    let prepared = prepare_nets(raw_nets)?;
+pub async fn autoroute_nets(
+    k: &Kicad,
+    raw_nets: &[String],
+    opts: &AutorouteOpts,
+) -> Result<AutorouteResult, String> {
+    let mut prepared = prepare_nets(raw_nets)?;
+    validate_opts(opts)?;
     let plugin = find_plugin_root()?;
     let wheels = find_wheels_dir(&plugin)?;
     let (python, python_home) = find_appimage_python()?;
@@ -180,12 +220,25 @@ pub async fn autoroute_nets(k: &Kicad, raw_nets: &[String]) -> Result<AutorouteR
         &wheels,
         &board,
         &prepared.nets,
+        opts,
     )
     .await?;
     let elapsed_s = started.elapsed().as_secs_f64();
     let (routed, failed) = parse_cli_summary(&stdout);
 
     let reloaded = reload_from_disk(k, before_tracks).await?;
+    let mut zones_refilled = false;
+    if reloaded {
+        match k.refill_all_zones().await {
+            Ok(()) => {
+                zones_refilled = true;
+                let _ = k.refresh().await;
+            }
+            Err(e) => prepared
+                .warnings
+                .push(format!("zone refill after autoroute failed: {e}")),
+        }
+    }
     let after = k.summary().await?;
     let log_tail = tail(&format!("{stdout}\n{stderr}"), 2500);
 
@@ -213,6 +266,7 @@ pub async fn autoroute_nets(k: &Kicad, raw_nets: &[String]) -> Result<AutorouteR
         track_count: after.track_count,
         via_count: after.via_count,
         reloaded,
+        zones_refilled,
         note,
         log_tail: Some(log_tail),
     })
@@ -225,6 +279,7 @@ async fn run_route_cli(
     wheels: &Path,
     board: &Path,
     nets: &[String],
+    opts: &AutorouteOpts,
 ) -> Result<(String, String), String> {
     let python = python.to_path_buf();
     let python_home = python_home.to_path_buf();
@@ -232,7 +287,10 @@ async fn run_route_cli(
     let wheels = wheels.to_path_buf();
     let board = board.to_path_buf();
     let nets = nets.to_vec();
-    let out = tokio::task::spawn_blocking(move || run_route_cli_blocking(&python, &python_home, &plugin, &wheels, &board, &nets))
+    let extra = cli_extra_args(&nets, opts)?;
+    let out = tokio::task::spawn_blocking(move || {
+        run_route_cli_blocking(&python, &python_home, &plugin, &wheels, &board, &nets, &extra)
+    })
         .await
         .map_err(|e| format!("autoroute worker join: {e}"))??;
     let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
@@ -247,6 +305,61 @@ async fn run_route_cli(
     Ok((stdout, stderr))
 }
 
+fn cli_extra_args(nets: &[String], opts: &AutorouteOpts) -> Result<Vec<String>, String> {
+    let clearance = opts.clearance_mm.unwrap_or(0.2);
+    let via_size = opts.via_size_mm.unwrap_or(0.6);
+    let via_drill = opts.via_drill_mm.unwrap_or(0.3);
+    let track = opts.track_width_mm.unwrap_or(0.2);
+    let override_path = write_fab_overrides(clearance, track, via_size, via_drill)?;
+    let mut extra = vec![
+        "--clearance".into(),
+        format_mm(clearance),
+        "--via-size".into(),
+        format_mm(via_size),
+        "--via-drill".into(),
+        format_mm(via_drill),
+        "--fab-tier".into(),
+        "standard".into(),
+        "--fab-overrides".into(),
+        override_path,
+    ];
+    if let Some(w) = opts.track_width_mm {
+        extra.push("--track-width".into());
+        extra.push(format_mm(w));
+    }
+    let has_dn = nets.iter().any(|n| n.eq_ignore_ascii_case("USB_DN"));
+    let has_dp = nets.iter().any(|n| n.eq_ignore_ascii_case("USB_DP"));
+    if has_dn && has_dp {
+        extra.extend([
+            "--length-match-group".into(),
+            "USB_DN".into(),
+            "USB_DP".into(),
+        ]);
+    }
+    Ok(extra)
+}
+
+fn format_mm(v: f64) -> String {
+    format!("{v:.3}").trim_end_matches('0').trim_end_matches('.').to_string()
+}
+
+fn write_fab_overrides(
+    clearance: f64,
+    track_width: f64,
+    via_diameter: f64,
+    via_drill: f64,
+) -> Result<String, String> {
+    let path = std::env::temp_dir().join(format!(
+        "kicad-mcp-fab-overrides-{}.txt",
+        std::process::id()
+    ));
+    let body = format!(
+        "clearance = {clearance}\ntrack_width = {track_width}\nvia_diameter = {via_diameter}\nvia_drill = {via_drill}\n"
+    );
+    std::fs::write(&path, body).map_err(|e| format!("fab-overrides: {e}"))?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
 fn run_route_cli_blocking(
     python: &Path,
     python_home: &Path,
@@ -254,6 +367,7 @@ fn run_route_cli_blocking(
     wheels: &Path,
     board: &Path,
     nets: &[String],
+    extra: &[String],
 ) -> Result<std::process::Output, String> {
     let mut cmd = Command::new(python);
     cmd.env("PYTHONHOME", python_home)
@@ -268,6 +382,9 @@ fn run_route_cli_blocking(
         .arg("--nets");
     for n in nets {
         cmd.arg(n);
+    }
+    for a in extra {
+        cmd.arg(a);
     }
     cmd.stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
@@ -401,5 +518,31 @@ mod tests {
         assert!(prepare_nets(&["USB_DP".into()]).is_err());
         let p = prepare_nets(&["USB_DN".into(), "USB_DP".into()]).unwrap();
         assert_eq!(p.warnings.len(), 1);
+        assert!(p.warnings[0].contains("length-match"));
+    }
+
+    #[test]
+    fn rejects_via_drill_ge_size() {
+        let err = validate_opts(&AutorouteOpts {
+            via_size_mm: Some(0.4),
+            via_drill_mm: Some(0.4),
+            ..AutorouteOpts::default()
+        })
+        .unwrap_err();
+        assert!(err.contains("via_drill"));
+    }
+
+    #[test]
+    fn usb_cli_adds_length_match_and_floors() {
+        let extra = cli_extra_args(
+            &["USB_DN".into(), "USB_DP".into()],
+            &AutorouteOpts::default(),
+        )
+        .unwrap();
+        assert!(extra.windows(3).any(|w| {
+            w[0] == "--length-match-group" && w[1] == "USB_DN" && w[2] == "USB_DP"
+        }));
+        assert!(extra.windows(2).any(|w| w[0] == "--clearance" && w[1] == "0.2"));
+        assert!(extra.iter().any(|a| a == "--fab-overrides"));
     }
 }

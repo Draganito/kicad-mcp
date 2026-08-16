@@ -148,26 +148,36 @@ Blatt-Ecke (0,0), während die API behauptet, das Teil sitze in der Mitte.
 ## 7. Netze
 
 `connect_pins` / `connect_many` setzen **Pad.net** (Ratsnest), kein
-Kupfer. Daisy-Chain: `net` weglassen. Das Netz wird in die
-Parent-FootprintInstance gespliced — ein freies Pad-UpdateItems lehnt
-KiCad ab. Auf **KiCad 10** bleibt der Name nach Speichern erhalten;
-`get_nets` / `check_board` müssen ihn zeigen.
+Kupfer. Alle Pads mit derselben Pin-Nummer bekommen das Netz
+(Thermal-Cluster, z. B. ESP32-Pad 41). Daisy-Chain: `net` weglassen.
+Das Netz wird in die Parent-FootprintInstance gespliced — ein freies
+Pad-UpdateItems lehnt KiCad ab. Auf **KiCad 10** bleibt der Name nach
+Speichern erhalten; `get_nets` / `check_board` müssen ihn zeigen.
 
 ## 8. Kupfer
 
 - `add_track` / `add_tracks` (max. 150, ein Undo)
 - `add_via` / `add_vias` (max. 150)
+- `stitch_via` — GND-Via + F.Cu-Stub neben einem Pin oder allen SMD-Pads
+  eines Netzes (`net: "GND"`)
 - `set_copper_zone` — Rechteck oder Polygon; Netz z. B. `5V` / `GND`;
   Lage `F.Cu` oder `B.Cu`; danach Refill
+- `clear_zones` — alle Kupferzonen löschen (Bahnen bleiben)
 - `ripup_wire` — `segment_id` aus `get_routing_scene`
 - `autoroute_nets` — genannte Netze über die Plugin-CLI, dann Reload
+  und Zonen-Refill
+- `check_drc` — `kicad-cli pcb drc` (Clearance, Silk, Löcher); speichert
 
 `autoroute_nets` startet die **CLI** des optionalen Plugins KiCad
 Routing Tools (nicht den wx-Dialog). Voraussetzung:
 `kicad-routing-tools-setup` und KiCad 10 über `kicad-10`.
 `nets` ist Pflicht — nie `*` / alle Netze. GND/VSS werden abgelehnt
-(Fläche). USB_DN und USB_DP nur zusammen (zwei Einzelnetze, kein Paar).
-Der Schritt speichert, schreibt die Datei und lädt neu — **kein Ctrl+Z**.
+(Fläche). USB_DN und USB_DP nur zusammen (zwei Einzelnetze plus
+Längenabgleich, kein `route_diff.py`). Optional `track_width_mm`,
+`via_size_mm`, `via_drill_mm`, `clearance_mm` — Default pinnt
+JLCPCB-sichere Floors (0,2 mm Abstand, Via 0,6/0,3), damit die CLI
+nicht still auf 0,127 mm fällt. Der Schritt speichert, schreibt die
+Datei, lädt neu und gießt Zonen nach — **kein Ctrl+Z**.
 Nur wenn du Autorouting oder eine Platine A–Z inkl. Kupfer willst.
 Keine parallelen Copper-Writes: KiCad `BeginCommit` verträgt das nicht.
 
@@ -187,13 +197,16 @@ Keine parallelen Copper-Writes: KiCad `BeginCommit` verträgt das nicht.
 | `place_matrix` | Schreiben — Raster |
 | `remove_footprint` | Schreiben |
 | `clear_board` | Schreiben — Teile + Kupfer, Umriss bleibt |
+| `clear_zones` | Schreiben — nur Zonen |
 | `set_board_outline` | Schreiben — Edge.Cuts |
-| `connect_pins` / `connect_many` | Schreiben — Ratsnest |
+| `connect_pins` / `connect_many` | Schreiben — Ratsnest (alle gleichnamigen Pads) |
 | `add_track` / `add_tracks` | Schreiben — Leiterbahn |
 | `add_via` / `add_vias` | Schreiben — Via |
+| `stitch_via` | Schreiben — GND-Via + Stub |
 | `set_copper_zone` | Schreiben — Pour + Refill |
 | `autoroute_nets` | Schreiben — CLI-Autorouter, genannte Netze |
 | `ripup_wire` | Schreiben |
+| `check_drc` | Schreiben — `kicad-cli` DRC (speichert) |
 | `save_board` | Schreiben — nur auf Wunsch |
 | `export_manufacturing` | Schreiben — JLCPCB: `*_gerbers.zip` + `*_bom.csv` + `*_cpl.csv` (`kicad-cli`) |
 
@@ -201,7 +214,7 @@ Keine parallelen Copper-Writes: KiCad `BeginCommit` verträgt das nicht.
 
 Jeder Write liegt auf KiCads Undo-Stack (**Ctrl+Z**), außer
 `autoroute_nets` (Datei-Reload). `save_board` nur wenn der Mensch es
-verlangt; `autoroute_nets` speichert intern, damit die CLI schreiben kann.
+verlangt; `autoroute_nets` und `check_drc` speichern intern.
 
 `export_manufacturing` speichert die offene Platine, füllt Zonen neu
 und schreibt drei JLCPCB-Dateien ins Projektverzeichnis oder
@@ -240,6 +253,7 @@ Nur MCP: `SKIP_ROUTING_TOOLS=1 dist/make_beta_package.sh`.
 | Loch in der Kupferzone | Inneres Edge.Cuts war ein Ausschnitt; Zonen neu füllen (B in KiCad) oder `set_board_outline` erneut |
 | `net_count: 1`, viele unconnected / `net_ipc_persists: false` | Falsches KiCad (9) — `kicad-10` |
 | Commit already in progress | Copper-Batches nicht parallel senden |
+| `check_drc` findet kein kicad-cli | KiCad 10 über `kicad-10` starten (AppImage-CLI unter `/tmp/.mount_kicad*`) |
 
 ## 13. Bewusste Grenzen
 

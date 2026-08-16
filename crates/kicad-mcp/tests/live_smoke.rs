@@ -243,7 +243,11 @@ async fn live_autoroute_named_net_reloads() {
     let k = Kicad::connect().await.expect("KiCad IPC");
     let before = k.summary().await.expect("summary");
     assert!(before.has_open_board, "open a board in KiCad first");
-    let result = kicad_mcp::autoroute::autoroute_nets(&k, &["5V".into()])
+    let result = kicad_mcp::autoroute::autoroute_nets(
+        &k,
+        &["5V".into()],
+        &kicad_mcp::autoroute::AutorouteOpts::default(),
+    )
         .await
         .expect("autoroute_nets");
     eprintln!("{}", serde_json::to_string_pretty(&result).unwrap());

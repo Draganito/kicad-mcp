@@ -74,16 +74,16 @@ pub async fn connect_pairs(
     let mut results = Vec::new();
 
     for (a, b, hint) in pairs {
-        let pa = find_entry(&netlist, &a.reference, &a.pin)?;
-        let pb = find_entry(&netlist, &b.reference, &b.pin)?;
+        let pas = find_entries(&netlist, &a.reference, &a.pin)?;
+        let pbs = find_entries(&netlist, &b.reference, &b.pin)?;
         let current_a = assigned
             .get(&(a.reference.clone(), a.pin.clone()))
             .cloned()
-            .or_else(|| named_net(pa.net_name.as_deref()));
+            .or_else(|| first_named_net(&pas));
         let current_b = assigned
             .get(&(b.reference.clone(), b.pin.clone()))
             .cloned()
-            .or_else(|| named_net(pb.net_name.as_deref()));
+            .or_else(|| first_named_net(&pbs));
         let fallback = format!("Net_{}_{}", a.reference, a.pin);
         let net = resolve_net_name(
             current_a.as_deref(),
@@ -98,8 +98,12 @@ pub async fn connect_pairs(
             )
         })?;
         let code = codes.code_for(&net);
-        pad_nets.insert(pad_id_of(pa)?, (net.clone(), code));
-        pad_nets.insert(pad_id_of(pb)?, (net.clone(), code));
+        for pa in &pas {
+            pad_nets.insert(pad_id_of(pa)?, (net.clone(), code));
+        }
+        for pb in &pbs {
+            pad_nets.insert(pad_id_of(pb)?, (net.clone(), code));
+        }
         assigned.insert((a.reference.clone(), a.pin.clone()), net.clone());
         assigned.insert((b.reference.clone(), b.pin.clone()), net.clone());
         results.push(serde_json::json!({
@@ -108,6 +112,7 @@ pub async fn connect_pairs(
             "ref2": b.reference,
             "pin2": b.pin,
             "net": net,
+            "pads": pas.len() + pbs.len(),
         }));
     }
 
@@ -136,14 +141,25 @@ pub async fn connect_pairs(
     Ok(results)
 }
 
-fn find_entry<'a>(
+/// Every pad that shares this EasyEDA/KiCad pin number (thermal clusters
+/// like ESP32 pad 41 are many pads with one name).
+fn find_entries<'a>(
     pads: &'a [PadNetEntry],
     reference: &str,
     pin: &str,
-) -> Result<&'a PadNetEntry, String> {
-    pads.iter()
-        .find(|p| p.footprint_reference.as_deref() == Some(reference) && p.pad_number == pin)
-        .ok_or_else(|| format!("no such pin: {reference}.{pin}"))
+) -> Result<Vec<&'a PadNetEntry>, String> {
+    let hits: Vec<_> = pads
+        .iter()
+        .filter(|p| p.footprint_reference.as_deref() == Some(reference) && p.pad_number == pin)
+        .collect();
+    if hits.is_empty() {
+        return Err(format!("no such pin: {reference}.{pin}"));
+    }
+    Ok(hits)
+}
+
+fn first_named_net(pads: &[&PadNetEntry]) -> Option<String> {
+    pads.iter().find_map(|p| named_net(p.net_name.as_deref()))
 }
 
 fn pad_id_of(entry: &PadNetEntry) -> Result<String, String> {
@@ -296,6 +312,30 @@ mod tests {
         assert!(named_net(Some("unconnected")).is_none());
         assert!(named_net(Some("")).is_none());
         assert_eq!(named_net(Some("5V")).as_deref(), Some("5V"));
+    }
+
+    #[test]
+    fn first_named_net_skips_empty_siblings() {
+        let empty = PadNetEntry {
+            pad_id: Some("a".into()),
+            footprint_id: None,
+            footprint_reference: Some("U1".into()),
+            pad_number: "41".into(),
+            net_name: Some("unconnected".into()),
+            net_code: None,
+        };
+        let gnd = PadNetEntry {
+            pad_id: Some("b".into()),
+            footprint_id: None,
+            footprint_reference: Some("U1".into()),
+            pad_number: "41".into(),
+            net_name: Some("GND".into()),
+            net_code: Some(1),
+        };
+        assert_eq!(first_named_net(&[&empty, &gnd]).as_deref(), Some("GND"));
+        let pads = [empty, gnd];
+        let hits = find_entries(&pads, "U1", "41").unwrap();
+        assert_eq!(hits.len(), 2);
     }
 }
 

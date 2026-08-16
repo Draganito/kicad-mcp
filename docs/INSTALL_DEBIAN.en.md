@@ -114,7 +114,7 @@ Typical flow:
 2. Copper: by hand in KiCad, the plugin dialog, or MCP `autoroute_nets`
    with **named** nets (never GND, never unused GPIOs)
 3. GND/5V as pours (`set_copper_zone`); autoroute 5V only if asked
-4. `check_board`, then `export_manufacturing` if needed
+4. `check_board` and after copper `check_drc`, then `export_manufacturing` if needed
 5. `save_board` **only when you ask**
 
 Undo: **Ctrl+Z** in KiCad. Do not edit `.kicad_pcb` by hand.

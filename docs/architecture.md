@@ -35,7 +35,8 @@ puts copper at the sheet corner.
 ## Nets (KiCad 10)
 
 `connect_pins` splices `Pad.net` into the parent footprint and
-`UpdateItems` it. A free-pad update is rejected. KiCad 10 persists
+`UpdateItems` it. Every pad that shares the pin number is assigned
+(thermal clusters). A free-pad update is rejected. KiCad 10 persists
 `Pad.net` / `Track.net`. `board_summary.net_ipc_persists` is true from
 major version 10.
 
@@ -45,8 +46,10 @@ socket is `/tmp/kicad/api.sock`. Starting the `.AppImage` or
 `/usr/bin/kicad` (9) breaks nets or the socket.
 
 The optional `kicad-routing-tools` .deb is a Pcbnew plugin. `autoroute_nets`
-runs its CLI (`py_router/route.py`) and reloads the open board via
-`RevertDocument`; it does not press the wx Route button.
+runs its CLI (`py_router/route.py`) with pinned JLCPCB floors, reloads
+the open board via `RevertDocument`, and refills copper zones. It does
+not press the wx Route button. `check_drc` shells out to
+`kicad-cli pcb drc` (same binary as gerber export).
 
 ## Outline replace
 

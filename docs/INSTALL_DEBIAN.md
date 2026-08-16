@@ -116,7 +116,7 @@ Typischer Ablauf:
 2. Kupfer: selbst in KiCad, Plugin-Dialog, oder MCP `autoroute_nets`
    mit **genannten** Netzen (nie GND, nie unbenutzte GPIOs)
 3. GND/5V als Fläche (`set_copper_zone`), 5V nur auf Wunsch autorouten
-4. `check_board`, bei Bedarf `export_manufacturing`
+4. `check_board` und nach Kupfer `check_drc`, bei Bedarf `export_manufacturing`
 5. `save_board` **nur wenn du es willst**
 
 Rückgängig: **Ctrl+Z** in KiCad. `.kicad_pcb` nicht von Hand editieren.

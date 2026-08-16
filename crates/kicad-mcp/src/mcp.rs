@@ -117,7 +117,7 @@ impl KicadMcp {
     }
 
     #[tool(
-        description = "Connectivity snapshot: footprints, nets, and pads whose net_name is empty or 'unconnected'. Not a full KiCad DRC run yet."
+        description = "Connectivity snapshot: footprints, nets, and pads whose net_name is empty or 'unconnected'. For copper clearance / silk / hole DRC use check_drc."
     )]
     async fn check_board(&self) -> Result<CallToolResult, McpError> {
         with_kicad(self, |k| async move {
@@ -480,7 +480,7 @@ impl KicadMcp {
     }
 
     #[tool(
-        description = "Join two pads onto one net (Pad.net via UpdateItems of the parent footprint). ref1/pin1 and ref2/pin2 are like U1 and 2. Optional net names a new one (e.g. \"5V\", \"GND\"). Daisy-chain hops omit net. Persists on KiCad 10. Not copper — use add_track / set_copper_zone after."
+        description = "Join two pads onto one net (Pad.net via UpdateItems of the parent footprint). ref1/pin1 and ref2/pin2 are like U1 and 2. Every pad that shares that pin number is assigned (thermal clusters such as U1.41). Optional net names a new one (e.g. \"5V\", \"GND\"). Daisy-chain hops omit net. Persists on KiCad 10. Not copper — use add_track / set_copper_zone after."
     )]
     async fn connect_pins(
         &self,
@@ -507,7 +507,7 @@ impl KicadMcp {
     }
 
     #[tool(
-        description = "Join many pad pairs onto nets in one undo (max 150). Each pair: {ref1, pin1, ref2, pin2, net?}. Same rules as connect_pins. Use this for power rails and daisy-chained signal hops."
+        description = "Join many pad pairs onto nets in one undo (max 150). Each pair: {ref1, pin1, ref2, pin2, net?}. Same rules as connect_pins (every pad that shares a pin number is assigned). Use this for power rails and daisy-chained signal hops."
     )]
     async fn connect_many(
         &self,
@@ -851,7 +851,7 @@ impl KicadMcp {
     }
 
     #[tool(
-        description = "Autoroute named nets via the KiCad Routing Tools CLI (not the wx dialog). nets is required — never all nets. GND/VSS are refused (pour a zone). USB_DN and USB_DP must be passed together (routed as two singles, not a pair). Saves, writes the .kicad_pcb through the plugin, reloads KiCad. Undo for this step is gone. Needs kicad-routing-tools-setup and KiCad 10 via kicad-10. Only when the human wants autorouting."
+        description = "Autoroute named nets via the KiCad Routing Tools CLI (not the wx dialog). nets is required — never all nets. GND/VSS are refused (pour a zone). USB_DN and USB_DP must be passed together (two singles + length-match, not route_diff.py). Optional track_width_mm / via_size_mm / via_drill_mm / clearance_mm; defaults pin JLCPCB-safe floors (0.2 mm clearance, 0.6/0.3 via) so the CLI cannot drop to 0.127. After reload, copper zones are refilled. Saves and reloads — no Ctrl+Z. Needs kicad-routing-tools-setup and KiCad 10 via kicad-10. Only when the human wants autorouting."
     )]
     async fn autoroute_nets(
         &self,
@@ -861,7 +861,29 @@ impl KicadMcp {
             return refusal;
         }
         with_kicad(self, move |k| async move {
-            crate::autoroute::autoroute_nets(&k, &args.nets).await
+            let opts = crate::autoroute::AutorouteOpts {
+                track_width_mm: args.track_width_mm,
+                via_size_mm: args.via_size_mm,
+                via_drill_mm: args.via_drill_mm,
+                clearance_mm: args.clearance_mm,
+            };
+            crate::autoroute::autoroute_nets(&k, &args.nets, &opts).await
+        })
+        .await
+    }
+
+    #[tool(
+        description = "KiCad DRC via kicad-cli: refill zones, save, then report clearance / silk / hole / unconnected-copper violations. Not the same as check_board (that is only empty pad nets). Needs kicad-cli (AppImage 10 preferred). Saves the open board. After a copper batch, call this before claiming the board is done."
+    )]
+    async fn check_drc(&self) -> Result<CallToolResult, McpError> {
+        if let Some(refusal) = self.require_write() {
+            return refusal;
+        }
+        with_kicad(self, |k| async move {
+            let _ = k.refill_all_zones().await;
+            k.save().await?;
+            let board = k.board_file_path().await?;
+            crate::fab::run_pcb_drc(&board)
         })
         .await
     }
@@ -1116,6 +1138,14 @@ pub struct ExportManufacturingArgs {
 pub struct AutorouteNetsArgs {
     /// Net names to route. Required. Never `*` or an empty list. GND is refused.
     pub nets: Vec<String>,
+    /// Track width in mm. Omit to keep each net's netclass width (floor 0.2).
+    pub track_width_mm: Option<f64>,
+    /// Via outer diameter in mm. Default 0.6.
+    pub via_size_mm: Option<f64>,
+    /// Via drill in mm. Default 0.3. Must be smaller than via_size_mm.
+    pub via_drill_mm: Option<f64>,
+    /// Copper clearance ceiling in mm. Default 0.2 (JLCPCB-safe; pins the fab floor).
+    pub clearance_mm: Option<f64>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -1283,9 +1313,14 @@ async fn commit_connect(
                 .first()
                 .and_then(|r| r.get("net").cloned())
                 .unwrap_or(serde_json::Value::Null);
+            let pads_assigned: usize = connected
+                .iter()
+                .filter_map(|r| r.get("pads").and_then(|v| v.as_u64()))
+                .sum::<u64>() as usize;
             Ok(serde_json::json!({
                 "ok": true,
                 "count": n,
+                "pads_assigned": pads_assigned,
                 "connected": connected,
                 "net": net,
             }))
@@ -1301,7 +1336,7 @@ async fn commit_connect(
 impl ServerHandler for KicadMcp {
     fn get_info(&self) -> ServerInfo {
         let write_note = if self.allow_ai_write {
-            "Write tools are ENABLED (--allow-ai-write): download_lcsc_part, place_footprint, place_parts, place_matrix, remove_footprint, clear_board, set_board_outline, connect_pins, connect_many, add_track, add_tracks, add_via, add_vias, stitch_via, set_copper_zone, autoroute_nets, ripup_wire, save_board, export_manufacturing."
+            "Write tools are ENABLED (--allow-ai-write): download_lcsc_part, place_footprint, place_parts, place_matrix, remove_footprint, clear_board, clear_zones, set_board_outline, connect_pins, connect_many, add_track, add_tracks, add_via, add_vias, stitch_via, set_copper_zone, autoroute_nets, ripup_wire, check_drc, save_board, export_manufacturing."
         } else {
             "Write tools are DISABLED. Relaunch with --allow-ai-write."
         };
@@ -1317,10 +1352,12 @@ impl ServerHandler for KicadMcp {
              The pink A4 frame is the drawing sheet, not the PCB. Board size is an Edge.Cuts rectangle \
              (set_board_outline); default origin is the sheet centre, not 0,0. Outline replace defaults to true. \
              Place on free F.CrtYd space inside the board; placement refuses courtyard overlap. \
-             Typical write path: clear_board, set_board_outline, place_parts or place_matrix, connect_many, \
+             Typical write path: clear_board, set_board_outline, place_parts or place_matrix, connect_many \
+             (assigns every pad that shares a pin number, e.g. thermal pad 41), \
              autoroute_nets for named signal nets (not GND), set_copper_zone for 5V/GND. \
              No move_footprint (remove then place). Copper: get_routing_scene then ripup_wire with segment_id. \
-             autoroute_nets calls the Routing Tools CLI and reloads the file (no Ctrl+Z for that step). \
+             autoroute_nets calls the Routing Tools CLI, reloads, and refills zones (no Ctrl+Z for that step). \
+             After copper, check_drc (kicad-cli) then check_board. \
              Do not edit .kicad_pcb by hand. \
              export_manufacturing writes JLCPCB files: <stem>_gerbers.zip + _bom.csv + _cpl.csv (needs kicad-cli). \
              {write_note}"

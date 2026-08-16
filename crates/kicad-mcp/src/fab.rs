@@ -205,6 +205,108 @@ fn run_kicad_cli(args: &[&str]) -> Result<(), String> {
     ))
 }
 
+const DRC_VIOLATION_CAP: usize = 40;
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DrcReport {
+    pub ok: bool,
+    pub error_count: usize,
+    pub warning_count: usize,
+    pub unconnected_count: usize,
+    pub violations: Vec<DrcHit>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DrcHit {
+    pub severity: String,
+    pub kind: String,
+    pub description: String,
+}
+
+/// Run `kicad-cli pcb drc` on a board already on disk. Does not parse the
+/// `.kicad_pcb` — KiCad's own checker writes JSON.
+pub fn run_pcb_drc(board_file: &Path) -> Result<DrcReport, String> {
+    if !board_file.is_file() {
+        return Err(format!("board file not on disk: {}", board_file.display()));
+    }
+    let out_path = std::env::temp_dir().join(format!(
+        "kicad-mcp-drc-{}.json",
+        std::process::id()
+    ));
+    let out_s = out_path.to_string_lossy().into_owned();
+    let board_s = board_file.to_string_lossy().into_owned();
+    run_kicad_cli(&[
+        "pcb",
+        "drc",
+        "--format",
+        "json",
+        "--units",
+        "mm",
+        "--severity-all",
+        "--refill-zones",
+        "--output",
+        &out_s,
+        &board_s,
+    ])?;
+    let text = fs::read_to_string(&out_path).map_err(|e| format!("drc json: {e}"))?;
+    let _ = fs::remove_file(&out_path);
+    parse_drc_json(&text)
+}
+
+fn parse_drc_json(text: &str) -> Result<DrcReport, String> {
+    let v: serde_json::Value =
+        serde_json::from_str(text).map_err(|e| format!("drc json parse: {e}"))?;
+    let mut hits = Vec::new();
+    collect_drc_hits(&v, "violations", &mut hits);
+    let unconnected = v
+        .get("unconnected_items")
+        .and_then(|x| x.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0);
+    let error_count = hits.iter().filter(|h| h.severity == "error").count();
+    let warning_count = hits.iter().filter(|h| h.severity == "warning").count();
+    if hits.len() > DRC_VIOLATION_CAP {
+        hits.truncate(DRC_VIOLATION_CAP);
+    }
+    Ok(DrcReport {
+        ok: error_count == 0,
+        error_count,
+        warning_count,
+        unconnected_count: unconnected,
+        violations: hits,
+    })
+}
+
+fn collect_drc_hits(v: &serde_json::Value, key: &str, hits: &mut Vec<DrcHit>) {
+    let Some(arr) = v.get(key).and_then(|x| x.as_array()) else {
+        return;
+    };
+    for item in arr {
+        let severity = item
+            .get("severity")
+            .and_then(|x| x.as_str())
+            .unwrap_or("error")
+            .to_string();
+        let kind = item
+            .get("type")
+            .or_else(|| item.get("description"))
+            .and_then(|x| x.as_str())
+            .unwrap_or("drc")
+            .to_string();
+        let description = item
+            .get("description")
+            .or_else(|| item.get("comment"))
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string();
+        hits.push(DrcHit {
+            severity,
+            kind,
+            description,
+        });
+    }
+}
+
 fn collect_plot_files(dir: &Path) -> Result<Vec<String>, String> {
     let mut names = Vec::new();
     for entry in fs::read_dir(dir).map_err(|e| e.to_string())? {
@@ -497,6 +599,23 @@ H1,MountingHole_M3_NPTH,MountingHole_M3_NPTH,1,2,0,top
         assert!(cpl.contains("C1,10.5,-20.25,Top,90.0"));
         assert!(cpl.contains("D1,0,0,Bottom,0"));
         assert!(!cpl.contains("H1"));
+    }
+
+    #[test]
+    fn parses_kicad_drc_json() {
+        let json = r#"{
+            "violations": [
+                {"severity": "error", "type": "clearance", "description": "Track too close"},
+                {"severity": "warning", "type": "silk_over_copper", "description": "Silk"}
+            ],
+            "unconnected_items": [1, 2]
+        }"#;
+        let r = parse_drc_json(json).unwrap();
+        assert!(!r.ok);
+        assert_eq!(r.error_count, 1);
+        assert_eq!(r.warning_count, 1);
+        assert_eq!(r.unconnected_count, 2);
+        assert_eq!(r.violations[0].kind, "clearance");
     }
 
 }

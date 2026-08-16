@@ -56,7 +56,7 @@ Danach typischer Ablauf:
 4. `connect_many` — Netze (Ratsnest)
 5. `add_track` / `set_copper_zone` — Kupfer; oder `autoroute_nets`
    mit genannten Signalnetzen (nicht GND)
-6. `check_board` — bevor die KI „fertig“ sagt
+6. `check_board` — bevor die KI „fertig“ sagt; nach Kupfer auch `check_drc`
 7. `export_manufacturing` — Gerber-Zip + BOM + CPL für JLCPCB
    (Silk ohne U1/C3-Beschriftung — sonst DFM „Silkscreen to pad“)
 8. `save_board` — **nur wenn du es willst**

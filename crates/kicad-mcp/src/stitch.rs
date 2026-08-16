@@ -94,19 +94,26 @@ pub async fn stitch_vias(k: &Kicad, args: StitchArgs) -> Result<serde_json::Valu
     let pads = board_pads(&pretty, &fps, &netlist)?;
 
     let targets: Vec<&PadGeom> = if let (Some(r), Some(p)) = (ref_s, pin_s) {
-        let hit = pads
+        let hits: Vec<_> = pads
             .iter()
-            .find(|pad| pad.reference == r && pad.pin == p)
-            .ok_or_else(|| format!("no such pin: {r}.{p}"))?;
+            .filter(|pad| pad.reference == r && pad.pin == p)
+            .collect();
+        if hits.is_empty() {
+            return Err(format!("no such pin: {r}.{p}"));
+        }
         if let Some(want) = net_s {
-            if hit.net != want {
+            if hits.iter().any(|h| h.net != want) {
+                let got = hits
+                    .iter()
+                    .map(|h| h.net.as_str())
+                    .find(|n| *n != want)
+                    .unwrap_or("");
                 return Err(format!(
-                    "{r}.{p} is on net {} — connect_pins first if you wanted {want}",
-                    hit.net
+                    "{r}.{p} is on net {got} — connect_pins first if you wanted {want}"
                 ));
             }
         }
-        vec![hit]
+        hits
     } else {
         let want = net_s.expect("net checked above");
         pads.iter().filter(|pad| pad.net == want).collect()
