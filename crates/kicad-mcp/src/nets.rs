@@ -1,5 +1,6 @@
 //! Join two pads onto one net (`Pad.net` via `UpdateItems` of the parent
 //! footprint — KiCad rejects a free pad: "Tried to create a pad in UNDEFINED").
+//! `disconnect_pin` is the inverse: splice net code 0 / name `"unconnected"`.
 //!
 //! Nested pad payloads are spliced in place so padstack geometry survives.
 //! KiCad 10 persists `Pad.net` / `Track.net` after UpdateItems. KiCad 9.0.2
@@ -13,7 +14,7 @@ use prost::Message;
 use prost_types::Any;
 
 use crate::kicad::Kicad;
-use crate::proto_wire::{encode_net, map_len_fields, set_len_field};
+use crate::proto_wire::{encode_net, encode_unconnected, map_len_fields, set_len_field};
 
 const TYPE_PAD: &str = "type.googleapis.com/kiapi.board.types.Pad";
 const TYPE_FOOTPRINT: &str = "type.googleapis.com/kiapi.board.types.FootprintInstance";
@@ -44,9 +45,9 @@ pub fn resolve_net_name(
         (Some(x), Some(y), _) if x != y => Err(format!(
             "pads already sit on two different nets ({x} and {y})"
         )),
-        (Some(x), _, Some(h)) | (_, Some(x), Some(h)) if x != h => Err(format!(
-            "pad is already on {x}, cannot assign {h}"
-        )),
+        (Some(x), _, Some(h)) | (_, Some(x), Some(h)) if x != h => {
+            Err(format!("pad is already on {x}, cannot assign {h}"))
+        }
         (Some(x), _, _) | (_, Some(x), _) => Ok(x.to_string()),
         (None, None, Some(h)) => Ok(h.to_string()),
         (None, None, None) => Ok(fallback.to_string()),
@@ -70,7 +71,7 @@ pub async fn connect_pairs(
     let netlist = k.pad_netlist().await?;
     let mut codes = NetCodes::from_board(&k.board_nets().await.unwrap_or_default());
     let mut assigned: HashMap<(String, String), String> = HashMap::new();
-    let mut pad_nets: HashMap<String, (String, i32)> = HashMap::new();
+    let mut pad_nets: HashMap<String, PadNetAssign> = HashMap::new();
     let mut results = Vec::new();
 
     for (a, b, hint) in pairs {
@@ -99,10 +100,10 @@ pub async fn connect_pairs(
         })?;
         let code = codes.code_for(&net);
         for pa in &pas {
-            pad_nets.insert(pad_id_of(pa)?, (net.clone(), code));
+            pad_nets.insert(pad_id_of(pa)?, PadNetAssign::Named(net.clone(), code));
         }
         for pb in &pbs {
-            pad_nets.insert(pad_id_of(pb)?, (net.clone(), code));
+            pad_nets.insert(pad_id_of(pb)?, PadNetAssign::Named(net.clone(), code));
         }
         assigned.insert((a.reference.clone(), a.pin.clone()), net.clone());
         assigned.insert((b.reference.clone(), b.pin.clone()), net.clone());
@@ -116,13 +117,67 @@ pub async fn connect_pairs(
         }));
     }
 
+    apply_pad_nets(k, &pad_nets).await?;
+    Ok(results)
+}
+
+/// Take pins off their nets (`Pad.net` → code 0 / `"unconnected"`). Every
+/// pad that shares the pin number is cleared (thermal clusters). Idempotent
+/// if already unconnected. Does not rip copper.
+pub async fn disconnect_pins(k: &Kicad, pins: &[PinRef]) -> Result<Vec<serde_json::Value>, String> {
+    if pins.is_empty() {
+        return Err("disconnect_pin needs at least one pin".into());
+    }
+    if pins.len() > crate::place::PLACE_MAX {
+        return Err(format!(
+            "disconnect_many max {} pins (got {})",
+            crate::place::PLACE_MAX,
+            pins.len()
+        ));
+    }
+    let netlist = k.pad_netlist().await?;
+    let mut pad_nets: HashMap<String, PadNetAssign> = HashMap::new();
+    let mut results = Vec::new();
+    for pin in pins {
+        let entries = find_entries(&netlist, &pin.reference, &pin.pin)?;
+        let was = first_named_net(&entries);
+        for entry in &entries {
+            pad_nets.insert(pad_id_of(entry)?, PadNetAssign::Unconnected);
+        }
+        results.push(serde_json::json!({
+            "reference": pin.reference,
+            "pin": pin.pin,
+            "pads": entries.len(),
+            "was": was,
+        }));
+    }
+    apply_pad_nets(k, &pad_nets).await?;
+    Ok(results)
+}
+
+#[derive(Clone, Debug)]
+enum PadNetAssign {
+    Named(String, i32),
+    Unconnected,
+}
+
+impl PadNetAssign {
+    fn payload(&self) -> Vec<u8> {
+        match self {
+            Self::Named(name, code) => encode_net(name, *code),
+            Self::Unconnected => encode_unconnected(),
+        }
+    }
+}
+
+async fn apply_pad_nets(k: &Kicad, pad_nets: &HashMap<String, PadNetAssign>) -> Result<(), String> {
     let fps = k
         .raw_items(vec![PcbObjectTypeCode::new_footprint().code])
         .await?;
     let mut updates = Vec::new();
     let mut found: HashMap<String, ()> = HashMap::new();
     for fp in fps {
-        if let Some(patched) = patch_footprint_pads(&fp, &pad_nets, &mut found)? {
+        if let Some(patched) = patch_footprint_pads(&fp, pad_nets, &mut found)? {
             updates.push(patched);
         }
     }
@@ -138,7 +193,7 @@ pub async fn connect_pairs(
         ));
     }
     k.update_items(updates).await?;
-    Ok(results)
+    Ok(())
 }
 
 /// Every pad that shares this EasyEDA/KiCad pin number (thermal clusters
@@ -205,7 +260,7 @@ impl NetCodes {
 /// UNDEFINED`). Splice `Pad.net` inside the parent `FootprintInstance`.
 fn patch_footprint_pads(
     fp: &Any,
-    pad_nets: &HashMap<String, (String, i32)>,
+    pad_nets: &HashMap<String, PadNetAssign>,
     found: &mut HashMap<String, ()>,
 ) -> Result<Option<Any>, String> {
     let changed = std::cell::Cell::new(false);
@@ -219,12 +274,12 @@ fn patch_footprint_pads(
             let Some(id) = decode_pad_id(&item) else {
                 return Ok(item_bytes.to_vec());
             };
-            let Some((net, code)) = pad_nets.get(&id) else {
+            let Some(assign) = pad_nets.get(&id) else {
                 return Ok(item_bytes.to_vec());
             };
             found.borrow_mut().insert(id.clone(), ());
             changed.set(true);
-            let value = set_len_field(&item.value, 4, &encode_net(net, *code))?;
+            let value = set_len_field(&item.value, 4, &assign.payload())?;
             let patched = Any {
                 type_url: if item.type_url.is_empty() {
                     TYPE_PAD.into()
@@ -337,6 +392,12 @@ mod tests {
         let hits = find_entries(&pads, "U1", "41").unwrap();
         assert_eq!(hits.len(), 2);
     }
+
+    #[test]
+    fn unconnected_payload_is_code_zero() {
+        let bytes = PadNetAssign::Unconnected.payload();
+        assert_eq!(bytes, encode_unconnected());
+    }
 }
 
 #[cfg(test)]
@@ -346,9 +407,7 @@ mod live {
     #[tokio::test]
     #[ignore = "needs a running KiCad PCB editor with IPC API"]
     async fn assign_u1_c1_5v() {
-        let k = crate::kicad::Kicad::connect()
-            .await
-            .expect("KiCad IPC");
+        let k = crate::kicad::Kicad::connect().await.expect("KiCad IPC");
         let summary = k.summary().await.expect("summary");
         assert!(summary.has_open_board, "open a board in KiCad first");
         let pads = k.pad_netlist().await.expect("netlist");

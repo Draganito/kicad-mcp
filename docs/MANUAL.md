@@ -154,7 +154,9 @@ not copper. Every pad that shares the pin number is assigned (thermal
 clusters, e.g. ESP32 pad 41). Daisy-chain: omit `net`. The net is
 spliced into the parent FootprintInstance — a free-pad UpdateItems is
 rejected. On **KiCad 10** the name persists after save; `get_nets` /
-`check_board` must show it.
+`check_board` must show it. `disconnect_pin` / `disconnect_many` clear
+that assignment back to unconnected (same splice, code 0). Idempotent
+if the pin is already open. Does not rip copper.
 
 A manufacturer PDF is allowed only after a **logic check** shows the
 EasyEDA names cannot be right (example: WROOM pad 1 named `IO20` while
@@ -209,6 +211,7 @@ KiCad `BeginCommit` races.
 | `clear_zones` | Write — zones only |
 | `set_board_outline` | Write — Edge.Cuts |
 | `connect_pins` / `connect_many` | Write — ratsnest (every same-number pad) |
+| `disconnect_pin` / `disconnect_many` | Write — pin back to unconnected |
 | `add_track` / `add_tracks` | Write — track |
 | `add_via` / `add_vias` | Write — via |
 | `stitch_via` | Write — GND via + stub |

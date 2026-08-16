@@ -47,6 +47,11 @@ pub fn encode_net_name(name: &str) -> Vec<u8> {
     encode_net(name, 0)
 }
 
+/// KiCad's unconnected sentinel: net code 0, name `"unconnected"`.
+pub fn encode_unconnected() -> Vec<u8> {
+    encode_net("unconnected", 0)
+}
+
 /// Map every occurrence of a length-delimited field (`wire_type = 2`).
 /// Other fields are copied unchanged. Used to splice nested pad Anys
 /// inside a `FootprintInstance` without a prost round-trip of the parent.
@@ -91,7 +96,9 @@ fn take_len_payload<'a>(buf: &'a [u8], i: &mut usize) -> Result<&'a [u8], String
     *i += n;
     let len = len as usize;
     let start = *i;
-    *i = i.checked_add(len).ok_or("truncated length-delimited field")?;
+    *i = i
+        .checked_add(len)
+        .ok_or("truncated length-delimited field")?;
     if *i > buf.len() {
         return Err("truncated length-delimited field".into());
     }
@@ -205,6 +212,24 @@ mod tests {
         assert_eq!(decoded.pad_type, 2);
         assert_eq!(decoded.net.as_ref().unwrap().name, "5V");
         assert_eq!(decoded.net.unwrap().code.unwrap().value, 0);
+    }
+
+    #[test]
+    fn splice_sets_unconnected() {
+        let original = Pad {
+            id: "x".into(),
+            number: "7".into(),
+            net: Some(Net {
+                code: Some(NetCode { value: 3 }),
+                name: "GND".into(),
+            }),
+            pad_type: 1,
+        };
+        let spliced = set_len_field(&original.encode_to_vec(), 4, &encode_unconnected()).unwrap();
+        let decoded = Pad::decode(spliced.as_slice()).unwrap();
+        assert_eq!(decoded.net.as_ref().unwrap().name, "unconnected");
+        assert_eq!(decoded.net.unwrap().code.unwrap().value, 0);
+        assert_eq!(decoded.number, "7");
     }
 
     #[test]

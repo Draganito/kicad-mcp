@@ -89,9 +89,11 @@ impl KicadMcp {
         with_kicad(self, |k| async move {
             let dir = k.project_dir().await?;
             let pretty = crate::kicad::jlc_pretty_dir(&dir);
-            easyeda_kicad::ensure_fp_lib_table(&dir.join("fp-lib-table")).map_err(|e| e.to_string())?;
+            easyeda_kicad::ensure_fp_lib_table(&dir.join("fp-lib-table"))
+                .map_err(|e| e.to_string())?;
             let _ = crate::builtins::ensure_builtin_footprints(&pretty)?;
-            let names = easyeda_kicad::list_pretty_footprints(&pretty).map_err(|e| e.to_string())?;
+            let names =
+                easyeda_kicad::list_pretty_footprints(&pretty).map_err(|e| e.to_string())?;
             let mut templates = Vec::new();
             for name in names {
                 let loaded = crate::place::load_template(&pretty, &name).ok();
@@ -242,7 +244,11 @@ impl KicadMcp {
         if let Some(refusal) = self.require_write() {
             return refusal;
         }
-        with_kicad(self, move |k| async move { place_many(&k, args.parts).await }).await
+        with_kicad(
+            self,
+            move |k| async move { place_many(&k, args.parts).await },
+        )
+        .await
     }
 
     #[tool(
@@ -566,6 +572,50 @@ impl KicadMcp {
     }
 
     #[tool(
+        description = "Take one pin off its net (Pad.net → unconnected). reference+pin like U16 and 7. connect_pins' inverse, for fixing a mis-wire after a bad EasyEDA name. Every pad that shares that pin number is cleared (thermal clusters). Idempotent if already unconnected. Does not rip copper. Ctrl+Z undoes."
+    )]
+    async fn disconnect_pin(
+        &self,
+        Parameters(args): Parameters<DisconnectPinArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        if let Some(refusal) = self.require_write() {
+            return refusal;
+        }
+        with_kicad(self, move |k| async move {
+            let pins = [crate::nets::PinRef {
+                reference: args.reference,
+                pin: args.pin,
+            }];
+            commit_disconnect(&k, &pins).await
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Take many pins off their nets in one undo (max 150). Each pin: {reference, pin}. Same rules as disconnect_pin (every pad that shares a pin number is cleared)."
+    )]
+    async fn disconnect_many(
+        &self,
+        Parameters(args): Parameters<DisconnectManyArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        if let Some(refusal) = self.require_write() {
+            return refusal;
+        }
+        with_kicad(self, move |k| async move {
+            let pins: Vec<_> = args
+                .pins
+                .into_iter()
+                .map(|p| crate::nets::PinRef {
+                    reference: p.reference,
+                    pin: p.pin,
+                })
+                .collect();
+            commit_disconnect(&k, &pins).await
+        })
+        .await
+    }
+
+    #[tool(
         description = "Create one straight copper track (no autorouter). a_x_mm/a_y_mm to b_x_mm/b_y_mm in KiCad millimetres. net is required (from connect_pins / get_nets). layer is F.Cu or B.Cu (default F.Cu). width_mm defaults to 0.25. Ctrl+Z undoes."
     )]
     async fn add_track(
@@ -637,14 +687,7 @@ impl KicadMcp {
                 let layer = crate::copper::parse_copper_layer(t.layer.as_deref())?;
                 let code = codes.code_for(&t.net);
                 items.push(crate::copper::track_any_coded(
-                    t.a_x_mm,
-                    t.a_y_mm,
-                    t.b_x_mm,
-                    t.b_y_mm,
-                    t.width_mm,
-                    layer,
-                    &t.net,
-                    code,
+                    t.a_x_mm, t.a_y_mm, t.b_x_mm, t.b_y_mm, t.width_mm, layer, &t.net, code,
                 )?);
             }
             let n_req = items.len();
@@ -738,12 +781,7 @@ impl KicadMcp {
             for v in &args.vias {
                 let code = codes.code_for(&v.net);
                 items.push(crate::copper::via_any_coded(
-                    v.x_mm,
-                    v.y_mm,
-                    &v.net,
-                    v.drill_mm,
-                    v.size_mm,
-                    code,
+                    v.x_mm, v.y_mm, &v.net, v.drill_mm, v.size_mm, code,
                 )?);
             }
             let n_req = items.len();
@@ -823,27 +861,19 @@ impl KicadMcp {
                     net_code,
                 )?
             } else {
-                let ox = args.origin_x_mm.ok_or_else(|| {
-                    "set_copper_zone needs origin+size or points".to_string()
-                })?;
-                let oy = args.origin_y_mm.ok_or_else(|| {
-                    "set_copper_zone needs origin+size or points".to_string()
-                })?;
-                let w = args.width_mm.ok_or_else(|| {
-                    "set_copper_zone needs origin+size or points".to_string()
-                })?;
-                let h = args.height_mm.ok_or_else(|| {
-                    "set_copper_zone needs origin+size or points".to_string()
-                })?;
-                crate::copper::rect_zone_any(
-                    ox,
-                    oy,
-                    w,
-                    h,
-                    layer,
-                    &args.net,
-                    args.name.as_deref(),
-                )?
+                let ox = args
+                    .origin_x_mm
+                    .ok_or_else(|| "set_copper_zone needs origin+size or points".to_string())?;
+                let oy = args
+                    .origin_y_mm
+                    .ok_or_else(|| "set_copper_zone needs origin+size or points".to_string())?;
+                let w = args
+                    .width_mm
+                    .ok_or_else(|| "set_copper_zone needs origin+size or points".to_string())?;
+                let h = args
+                    .height_mm
+                    .ok_or_else(|| "set_copper_zone needs origin+size or points".to_string())?;
+                crate::copper::rect_zone_any(ox, oy, w, h, layer, &args.net, args.name.as_deref())?
             };
             let session = k.begin_commit().await?;
             match k.create_items(vec![item]).await {
@@ -1007,7 +1037,10 @@ async fn place_many(
     let dir = k.project_dir().await?;
     let pretty = crate::kicad::jlc_pretty_dir(&dir);
     let existing = k.footprints().await?;
-    let mut used: Vec<String> = existing.iter().filter_map(|f| f.reference.clone()).collect();
+    let mut used: Vec<String> = existing
+        .iter()
+        .filter_map(|f| f.reference.clone())
+        .collect();
     let mut occupied: Vec<(String, crate::place::Aabb)> = Vec::new();
     for fp in &existing {
         let Some(tmpl) = fp.value.as_deref() else {
@@ -1147,11 +1180,17 @@ fn outline_origin_for_sheet(width_mm: f64, height_mm: f64) -> (f64, f64) {
     )
 }
 
-fn courtyard_of_template(pretty_dir: &std::path::Path, template: &str) -> Option<crate::place::Aabb> {
+fn courtyard_of_template(
+    pretty_dir: &std::path::Path,
+    template: &str,
+) -> Option<crate::place::Aabb> {
     let path = pretty_dir.join(format!("{template}.kicad_mod"));
     let text = std::fs::read_to_string(path).ok()?;
-    crate::place::parse_kicad_mod_courtyard(&text)
-        .or_else(|| crate::place::parse_kicad_mod_pads(&text).ok().map(|p| crate::place::pads_aabb(&p)))
+    crate::place::parse_kicad_mod_courtyard(&text).or_else(|| {
+        crate::place::parse_kicad_mod_pads(&text)
+            .ok()
+            .map(|p| crate::place::pads_aabb(&p))
+    })
 }
 
 #[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
@@ -1276,6 +1315,25 @@ pub struct ConnectManyArgs {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct DisconnectPinArgs {
+    /// Footprint reference, e.g. `"U16"`.
+    pub reference: String,
+    /// Pad number, e.g. `"7"`.
+    pub pin: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct DisconnectPinSpec {
+    pub reference: String,
+    pub pin: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct DisconnectManyArgs {
+    pub pins: Vec<DisconnectPinSpec>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct AddTrackArgs {
     pub a_x_mm: f64,
     pub a_y_mm: f64,
@@ -1364,11 +1422,40 @@ async fn commit_connect(
     }
 }
 
+async fn commit_disconnect(
+    k: &Kicad,
+    pins: &[crate::nets::PinRef],
+) -> Result<serde_json::Value, String> {
+    let session = k.begin_commit().await?;
+    match crate::nets::disconnect_pins(k, pins).await {
+        Ok(disconnected) => {
+            let n = disconnected.len();
+            k.end_commit(session, &format!("kicad-mcp disconnect {n} pins"))
+                .await?;
+            let _ = k.refresh().await;
+            let pads_cleared: usize = disconnected
+                .iter()
+                .filter_map(|r| r.get("pads").and_then(|v| v.as_u64()))
+                .sum::<u64>() as usize;
+            Ok(serde_json::json!({
+                "ok": true,
+                "count": n,
+                "pads_cleared": pads_cleared,
+                "disconnected": disconnected,
+            }))
+        }
+        Err(e) => {
+            let _ = k.drop_commit(session).await;
+            Err(e)
+        }
+    }
+}
+
 #[tool_handler(router = self.tool_router)]
 impl ServerHandler for KicadMcp {
     fn get_info(&self) -> ServerInfo {
         let write_note = if self.allow_ai_write {
-            "Write tools are ENABLED (--allow-ai-write): download_lcsc_part, place_footprint, place_parts, place_matrix, remove_footprint, clear_board, clear_zones, set_board_outline, connect_pins, connect_many, add_track, add_tracks, add_via, add_vias, stitch_via, set_copper_zone, autoroute_nets, ripup_wire, check_drc, save_board, export_manufacturing."
+            "Write tools are ENABLED (--allow-ai-write): download_lcsc_part, place_footprint, place_parts, place_matrix, remove_footprint, clear_board, clear_zones, set_board_outline, connect_pins, connect_many, disconnect_pin, disconnect_many, add_track, add_tracks, add_via, add_vias, stitch_via, set_copper_zone, autoroute_nets, ripup_wire, check_drc, save_board, export_manufacturing."
         } else {
             "Write tools are DISABLED. Relaunch with --allow-ai-write."
         };
@@ -1389,6 +1476,7 @@ impl ServerHandler for KicadMcp {
              Place on free F.CrtYd space inside the board; placement refuses courtyard overlap. \
              Typical write path: clear_board, set_board_outline, place_parts or place_matrix, connect_many \
              (assigns every pad that shares a pin number, e.g. thermal pad 41), \
+             disconnect_pin to put a pad back on unconnected after a mis-wire, \
              autoroute_nets for named signal nets (not GND), set_copper_zone for 5V/GND. \
              No move_footprint (remove then place). Copper: get_routing_scene then ripup_wire with segment_id. \
              autoroute_nets calls the Routing Tools CLI, reloads, and refills zones (no Ctrl+Z for that step). \

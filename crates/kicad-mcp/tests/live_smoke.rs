@@ -50,7 +50,9 @@ async fn smoke_new_tools() {
                 .await
                 .expect("end place");
             let _ = k.refresh().await;
-            report.push(format!("place WirePad_PTH as W99 at ({x}, {y}): {n} item(s)"));
+            report.push(format!(
+                "place WirePad_PTH as W99 at ({x}, {y}): {n} item(s)"
+            ));
         }
         Err(e) => {
             let _ = k.drop_commit(session).await;
@@ -136,6 +138,73 @@ async fn smoke_new_tools() {
         }
     }
 
+    let session = k.begin_commit().await.expect("commit smoke W99 net");
+    let w99_net = nets::connect_pairs(
+        &k,
+        &[(
+            PinRef {
+                reference: "W99".into(),
+                pin: "1".into(),
+            },
+            PinRef {
+                reference: "W99".into(),
+                pin: "1".into(),
+            },
+            Some("SMOKE_NET".into()),
+        )],
+    )
+    .await;
+    match w99_net {
+        Ok(_) => {
+            k.end_commit(session, "kicad-mcp smoke connect W99")
+                .await
+                .expect("end W99 connect");
+            let _ = k.refresh().await;
+            let session = k.begin_commit().await.expect("commit smoke disconnect");
+            match nets::disconnect_pins(
+                &k,
+                &[PinRef {
+                    reference: "W99".into(),
+                    pin: "1".into(),
+                }],
+            )
+            .await
+            {
+                Ok(rows) => {
+                    k.end_commit(session, "kicad-mcp smoke disconnect W99")
+                        .await
+                        .expect("end disconnect");
+                    let _ = k.refresh().await;
+                    let pads = k.pad_netlist().await.expect("netlist after disconnect");
+                    let w99 = pads.iter().find(|p| {
+                        p.footprint_reference.as_deref() == Some("W99") && p.pad_number == "1"
+                    });
+                    let cleared = match w99.and_then(|p| p.net_name.as_deref()) {
+                        None | Some("") | Some("unconnected") => true,
+                        Some(_) => false,
+                    };
+                    report.push(format!(
+                        "disconnect_pin W99.1: ipc_ok rows={rows:?} cleared={cleared}"
+                    ));
+                    if !cleared {
+                        report.push(
+                            "NOTE: disconnect_pin did not persist — start KiCad 10 via ~/Programme/kicad-10.sh."
+                                .into(),
+                        );
+                    }
+                }
+                Err(e) => {
+                    let _ = k.drop_commit(session).await;
+                    report.push(format!("disconnect_pin failed: {e}"));
+                }
+            }
+        }
+        Err(e) => {
+            let _ = k.drop_commit(session).await;
+            report.push(format!("connect W99 for disconnect smoke failed: {e}"));
+        }
+    }
+
     // Remove the smoke parts (Ctrl+Z also works).
     let mut drop_ids: Vec<String> = Vec::new();
     if let Some(id) = k.footprint_id_by_reference("W99").await.ok().flatten() {
@@ -147,9 +216,7 @@ async fn smoke_new_tools() {
         let session = k.begin_commit().await.expect("commit cleanup");
         match k.delete_ids(drop_ids).await {
             Ok(deleted) => {
-                k.end_commit(session, "kicad-mcp smoke cleanup")
-                    .await
-                    .ok();
+                k.end_commit(session, "kicad-mcp smoke cleanup").await.ok();
                 let _ = k.refresh().await;
                 report.push(format!("cleanup deleted {} item(s)", deleted.len()));
             }
@@ -177,8 +244,16 @@ async fn export_manufacturing_to_project() {
     let fps = k.footprints().await.expect("footprints");
     let files = kicad_mcp::fab::export_manufacturing(&board, &dir, &fps).expect("export");
     eprintln!("gerber_zip={}", files.gerber_zip.display());
-    eprintln!("bom_csv={} rows={}", files.bom_csv.display(), files.bom_rows);
-    eprintln!("cpl_csv={} rows={}", files.cpl_csv.display(), files.cpl_rows);
+    eprintln!(
+        "bom_csv={} rows={}",
+        files.bom_csv.display(),
+        files.bom_rows
+    );
+    eprintln!(
+        "cpl_csv={} rows={}",
+        files.cpl_csv.display(),
+        files.cpl_rows
+    );
     assert!(files.gerber_zip.is_file());
     assert!(files.bom_rows >= 1);
     assert!(files.cpl_rows >= 1);
@@ -248,10 +323,13 @@ async fn live_autoroute_named_net_reloads() {
         &["5V".into()],
         &kicad_mcp::autoroute::AutorouteOpts::default(),
     )
-        .await
-        .expect("autoroute_nets");
+    .await
+    .expect("autoroute_nets");
     eprintln!("{}", serde_json::to_string_pretty(&result).unwrap());
-    assert!(result.reloaded, "KiCad must show the CLI copper after reload");
+    assert!(
+        result.reloaded,
+        "KiCad must show the CLI copper after reload"
+    );
     assert!(
         result.track_count > before.track_count || result.via_count > before.via_count,
         "expected new 5V copper after reload"

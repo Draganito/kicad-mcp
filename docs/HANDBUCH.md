@@ -158,7 +158,9 @@ das Netz (Thermal-Cluster, z. B. ESP32-Pad 41). Daisy-Chain: `net`
 weglassen. Das Netz wird in die Parent-FootprintInstance gespliced —
 ein freies Pad-UpdateItems lehnt KiCad ab. Auf **KiCad 10** bleibt der
 Name nach Speichern erhalten; `get_nets` / `check_board` müssen ihn
-zeigen.
+zeigen. `disconnect_pin` / `disconnect_many` setzen die Zuweisung
+zurück auf unconnected (gleicher Splice, Code 0). Idempotent, wenn der
+Pin schon offen ist. Reißt kein Kupfer auf.
 
 Ein Hersteller-PDF ist nur erlaubt, wenn eine **Logikprüfung** die
 EasyEDA-Namen unmöglich macht (Beispiel: WROOM-Pad 1 heißt `IO20`,
@@ -214,6 +216,7 @@ Keine parallelen Copper-Writes: KiCad `BeginCommit` verträgt das nicht.
 | `clear_zones` | Schreiben — nur Zonen |
 | `set_board_outline` | Schreiben — Edge.Cuts |
 | `connect_pins` / `connect_many` | Schreiben — Ratsnest (alle gleichnamigen Pads) |
+| `disconnect_pin` / `disconnect_many` | Schreiben — Pin wieder unconnected |
 | `add_track` / `add_tracks` | Schreiben — Leiterbahn |
 | `add_via` / `add_vias` | Schreiben — Via |
 | `stitch_via` | Schreiben — GND-Via + Stub |

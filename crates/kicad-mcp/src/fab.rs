@@ -16,8 +16,7 @@ use std::process::Command;
 use crate::builtins::{MOUNTING_HOLE_M3, WIRE_PAD};
 use crate::kicad::FootprintInfo;
 
-const JLC_GERBER_LAYERS: &str =
-    "F.Cu,B.Cu,F.Paste,B.Paste,F.SilkS,B.SilkS,F.Mask,B.Mask,Edge.Cuts";
+const JLC_GERBER_LAYERS: &str = "F.Cu,B.Cu,F.Paste,B.Paste,F.SilkS,B.SilkS,F.Mask,B.Mask,Edge.Cuts";
 
 const PLOT_EXTS: &[&str] = &[
     "gtl", "gbl", "gts", "gbs", "gto", "gbo", "gtp", "gbp", "gm1", "gm2", "gm3", "gbr", "gbrjob",
@@ -183,10 +182,12 @@ fn appimage_kicad_cli() -> Option<PathBuf> {
 
 fn run_kicad_cli(args: &[&str]) -> Result<(), String> {
     let bin = kicad_cli_bin();
-    let out = Command::new(&bin)
-        .args(args)
-        .output()
-        .map_err(|e| format!("couldn't run {}: {e} (install the kicad package)", bin.display()))?;
+    let out = Command::new(&bin).args(args).output().map_err(|e| {
+        format!(
+            "couldn't run {}: {e} (install the kicad package)",
+            bin.display()
+        )
+    })?;
     if out.status.success() {
         return Ok(());
     }
@@ -229,10 +230,7 @@ pub fn run_pcb_drc(board_file: &Path) -> Result<DrcReport, String> {
     if !board_file.is_file() {
         return Err(format!("board file not on disk: {}", board_file.display()));
     }
-    let out_path = std::env::temp_dir().join(format!(
-        "kicad-mcp-drc-{}.json",
-        std::process::id()
-    ));
+    let out_path = std::env::temp_dir().join(format!("kicad-mcp-drc-{}.json", std::process::id()));
     let out_s = out_path.to_string_lossy().into_owned();
     let board_s = board_file.to_string_lossy().into_owned();
     run_kicad_cli(&[
@@ -403,7 +401,11 @@ pub fn build_bom_rows(footprints: &[FootprintInfo]) -> Vec<BomRow> {
             }
         })
         .collect();
-    rows.sort_by(|a, b| a.footprint.cmp(&b.footprint).then(a.comment.cmp(&b.comment)));
+    rows.sort_by(|a, b| {
+        a.footprint
+            .cmp(&b.footprint)
+            .then(a.comment.cmp(&b.comment))
+    });
     rows
 }
 
@@ -499,7 +501,9 @@ pub fn ki_pos_to_jlcpcb_cpl(text: &str) -> Result<String, String> {
         ));
     }
     if header.is_none() {
-        return Err("kicad-cli position file had no CSV header (Ref,Val,Package,PosX,PosY,Rot,Side)".into());
+        return Err(
+            "kicad-cli position file had no CSV header (Ref,Val,Package,PosX,PosY,Rot,Side)".into(),
+        );
     }
     Ok(out)
 }
@@ -553,7 +557,10 @@ mod tests {
             lcsc_from_template("C5348912_LED-SMD_4P-L5.0-W4.9-BR").as_deref(),
             Some("C5348912")
         );
-        assert_eq!(lcsc_from_template("C14663_C0603").as_deref(), Some("C14663"));
+        assert_eq!(
+            lcsc_from_template("C14663_C0603").as_deref(),
+            Some("C14663")
+        );
         assert_eq!(lcsc_from_template("WirePad_PTH"), None);
     }
 
@@ -567,7 +574,10 @@ mod tests {
             fp("D1", "C5348912_LED-SMD_4P-L5.0-W4.9-BR"),
         ]);
         assert_eq!(rows.len(), 2);
-        assert_eq!(rows[0].designators, vec!["C1".to_string(), "C2".to_string()]);
+        assert_eq!(
+            rows[0].designators,
+            vec!["C1".to_string(), "C2".to_string()]
+        );
         assert_eq!(rows[0].lcsc_part_number, "C14663");
         assert_eq!(rows[0].footprint, "C0603");
         assert_eq!(rows[1].lcsc_part_number, "C5348912");
@@ -617,5 +627,4 @@ H1,MountingHole_M3_NPTH,MountingHole_M3_NPTH,1,2,0,top
         assert_eq!(r.unconnected_count, 2);
         assert_eq!(r.violations[0].kind, "clearance");
     }
-
 }

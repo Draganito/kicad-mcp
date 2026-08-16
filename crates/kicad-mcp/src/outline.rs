@@ -83,7 +83,9 @@ fn segment(x0: i64, y0: i64, x1: i64, y1: i64) -> Any {
     let shape = GraphicShape {
         attributes: Some(GraphicAttributes {
             stroke: Some(StrokeAttributes {
-                width: Some(Distance { value_nm: STROKE_NM }),
+                width: Some(Distance {
+                    value_nm: STROKE_NM,
+                }),
                 style: SLS_SOLID,
             }),
             fill: Some(GraphicFillAttributes {

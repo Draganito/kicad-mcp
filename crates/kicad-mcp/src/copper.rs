@@ -38,9 +38,7 @@ pub fn parse_copper_layer(name: Option<&str>) -> Result<i32, String> {
     match name.unwrap_or("F.Cu") {
         "F.Cu" | "F_Cu" | "f.cu" => Ok(BL_F_CU),
         "B.Cu" | "B_Cu" | "b.cu" => Ok(BL_B_CU),
-        other => Err(format!(
-            "copper layer must be F.Cu or B.Cu (got {other})"
-        )),
+        other => Err(format!("copper layer must be F.Cu or B.Cu (got {other})")),
     }
 }
 

@@ -248,7 +248,9 @@ pub async fn autoroute_nets(
             "CLI wrote the file but KiCad did not reload. File → Revert (or close and reopen the board)."
                 .into(),
         );
-    } else if after.track_count == before_tracks && after.via_count == before_vias && failed.is_empty()
+    } else if after.track_count == before_tracks
+        && after.via_count == before_vias
+        && failed.is_empty()
     {
         note = Some(
             "Reload ran but track/via counts are unchanged — the CLI may have written no new copper."
@@ -289,10 +291,18 @@ async fn run_route_cli(
     let nets = nets.to_vec();
     let extra = cli_extra_args(&nets, opts)?;
     let out = tokio::task::spawn_blocking(move || {
-        run_route_cli_blocking(&python, &python_home, &plugin, &wheels, &board, &nets, &extra)
+        run_route_cli_blocking(
+            &python,
+            &python_home,
+            &plugin,
+            &wheels,
+            &board,
+            &nets,
+            &extra,
+        )
     })
-        .await
-        .map_err(|e| format!("autoroute worker join: {e}"))??;
+    .await
+    .map_err(|e| format!("autoroute worker join: {e}"))??;
     let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
     let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
     if !out.status.success() {
@@ -340,7 +350,10 @@ fn cli_extra_args(nets: &[String], opts: &AutorouteOpts) -> Result<Vec<String>, 
 }
 
 fn format_mm(v: f64) -> String {
-    format!("{v:.3}").trim_end_matches('0').trim_end_matches('.').to_string()
+    format!("{v:.3}")
+        .trim_end_matches('0')
+        .trim_end_matches('.')
+        .to_string()
 }
 
 fn write_fab_overrides(
@@ -539,10 +552,12 @@ mod tests {
             &AutorouteOpts::default(),
         )
         .unwrap();
-        assert!(extra.windows(3).any(|w| {
-            w[0] == "--length-match-group" && w[1] == "USB_DN" && w[2] == "USB_DP"
-        }));
-        assert!(extra.windows(2).any(|w| w[0] == "--clearance" && w[1] == "0.2"));
+        assert!(extra
+            .windows(3)
+            .any(|w| { w[0] == "--length-match-group" && w[1] == "USB_DN" && w[2] == "USB_DP" }));
+        assert!(extra
+            .windows(2)
+            .any(|w| w[0] == "--clearance" && w[1] == "0.2"));
         assert!(extra.iter().any(|a| a == "--fab-overrides"));
     }
 }

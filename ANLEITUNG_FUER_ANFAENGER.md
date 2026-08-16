@@ -56,7 +56,8 @@ Danach typischer Ablauf:
    `get_part_pins`. Netze danach, Datenblatt nur wenn EasyEDA logisch
    nicht stimmen kann.
 3. `place_footprint` / `place_parts` / `place_matrix`
-4. `connect_many` — Netze (Ratsnest)
+4. `connect_many` — Netze (Ratsnest). Falsch verdrahtet:
+   `disconnect_pin` (Pad wieder unconnected).
 5. `add_track` / `set_copper_zone` — Kupfer; oder `autoroute_nets`
    mit genannten Signalnetzen (nicht GND)
 6. `check_board` — bevor die KI „fertig“ sagt; nach Kupfer auch `check_drc`

@@ -36,8 +36,9 @@ puts copper at the sheet corner.
 ## Nets (KiCad 10)
 
 `connect_pins` splices `Pad.net` into the parent footprint and
-`UpdateItems` it. Every pad that shares the pin number is assigned
-(thermal clusters). A free-pad update is rejected. KiCad 10 persists
+`UpdateItems` it. `disconnect_pin` splices the same field back to
+unconnected (code 0). Every pad that shares the pin number is assigned
+or cleared (thermal clusters). A free-pad update is rejected. KiCad 10 persists
 `Pad.net` / `Track.net`. `board_summary.net_ipc_persists` is true from
 major version 10.
 

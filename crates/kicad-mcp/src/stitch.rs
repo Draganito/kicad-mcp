@@ -59,7 +59,11 @@ pub struct StitchArgs {
 }
 
 pub async fn stitch_vias(k: &Kicad, args: StitchArgs) -> Result<serde_json::Value, String> {
-    let ref_s = args.reference.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    let ref_s = args
+        .reference
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
     let pin_s = args.pin.as_deref().map(str::trim).filter(|s| !s.is_empty());
     let net_s = args.net.as_deref().map(str::trim).filter(|s| !s.is_empty());
     match (ref_s, pin_s, net_s) {
@@ -339,9 +343,26 @@ fn pick_spot(
 ) -> Option<(f64, f64)> {
     for (vx, vy) in candidates(pad, via_r) {
         if spot_clear(
-            pad, vx, vy, via_r, stub_w, pads, vias, tracks, extra_vias, extra_tracks,
+            pad,
+            vx,
+            vy,
+            via_r,
+            stub_w,
+            pads,
+            vias,
+            tracks,
+            extra_vias,
+            extra_tracks,
         ) && stub_clear(
-            pad, vx, vy, stub_w, pads, vias, tracks, extra_vias, extra_tracks,
+            pad,
+            vx,
+            vy,
+            stub_w,
+            pads,
+            vias,
+            tracks,
+            extra_vias,
+            extra_tracks,
         ) {
             return Some((vx, vy));
         }
@@ -469,7 +490,8 @@ fn stub_clear(
         }
     }
     for (x, y) in extra_vias {
-        if dist_point_seg(*x, *y, owner.x_mm, owner.y_mm, vx, vy) < DEFAULT_VIA_SIZE_MM / 2.0 + need {
+        if dist_point_seg(*x, *y, owner.x_mm, owner.y_mm, vx, vy) < DEFAULT_VIA_SIZE_MM / 2.0 + need
+        {
             return false;
         }
     }
@@ -478,7 +500,8 @@ fn stub_clear(
             continue;
         };
         let th = t.width_mm.unwrap_or(stub_w) / 2.0;
-        if dist_seg_seg(owner.x_mm, owner.y_mm, vx, vy, a[0], a[1], b[0], b[1]) < half + th + CLEARANCE_MM
+        if dist_seg_seg(owner.x_mm, owner.y_mm, vx, vy, a[0], a[1], b[0], b[1])
+            < half + th + CLEARANCE_MM
         {
             return false;
         }
@@ -487,7 +510,8 @@ fn stub_clear(
         if *ax == owner.x_mm && *ay == owner.y_mm {
             continue;
         }
-        if dist_seg_seg(owner.x_mm, owner.y_mm, vx, vy, *ax, *ay, *bx, *by) < stub_w + CLEARANCE_MM {
+        if dist_seg_seg(owner.x_mm, owner.y_mm, vx, vy, *ax, *ay, *bx, *by) < stub_w + CLEARANCE_MM
+        {
             return false;
         }
     }
@@ -635,7 +659,15 @@ mod tests {
             b_mm: Some([2.0, 3.0]),
         }];
         assert!(stub_clear(
-            &owner, 2.0, 0.0, 0.25, &[], &[], &clear, &[], &[]
+            &owner,
+            2.0,
+            0.0,
+            0.25,
+            &[],
+            &[],
+            &clear,
+            &[],
+            &[]
         ));
     }
 }

@@ -6,7 +6,8 @@
 //!    not parent-transform nested pads; the instance position is only the
 //!    anchor `get_footprints` returns).
 //! 3. Courtyard overlap is rejected in `place_footprint` / `place_parts` / `place_matrix`.
-//! 4. `connect_pins` sets `Pad.net` (UpdateItems). Tracks/vias/zones are CreateItems.
+//! 4. `connect_pins` sets `Pad.net` (UpdateItems); `disconnect_pin` clears it
+//!    back to unconnected. Tracks/vias/zones are CreateItems.
 //! 5. Copper: tracks, vias, stitch vias, then zones.
 
 pub mod autoroute;

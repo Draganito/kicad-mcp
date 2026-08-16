@@ -99,7 +99,8 @@ Read: `board_summary`, `get_footprints`, `get_nets`, `get_routing_scene`,
 
 Write: `download_lcsc_part`, `place_footprint`, `place_parts`,
 `place_matrix`, `remove_footprint`, `clear_board`, `set_board_outline`,
-`connect_pins`, `connect_many`, `add_track`, `add_tracks`, `add_via`,
+`connect_pins`, `connect_many`, `disconnect_pin`, `disconnect_many`,
+`add_track`, `add_tracks`, `add_via`,
 `add_vias`, `stitch_via`, `set_copper_zone`, `autoroute_nets`,
 `ripup_wire` (by `segment_id`), `save_board`, `export_manufacturing`.
 

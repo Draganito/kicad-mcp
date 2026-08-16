@@ -138,12 +138,26 @@ pub fn footprint_instance_any(spec: &PlaceSpec<'_>) -> Result<Any, String> {
                 mounting_style: if smd { FMS_SMD } else { FMS_THROUGH_HOLE },
                 ..Default::default()
             }),
-            reference_field: Some(field("Reference", spec.reference, ref_x, ref_y, BL_F_SILKS, true)),
+            reference_field: Some(field(
+                "Reference",
+                spec.reference,
+                ref_x,
+                ref_y,
+                BL_F_SILKS,
+                true,
+            )),
             value_field: Some(field("Value", spec.template, val_x, val_y, BL_F_FAB, true)),
             items: pads_world.iter().map(pad_any).collect(),
             ..Default::default()
         }),
-        reference_field: Some(field("Reference", spec.reference, ref_x, ref_y, BL_F_SILKS, true)),
+        reference_field: Some(field(
+            "Reference",
+            spec.reference,
+            ref_x,
+            ref_y,
+            BL_F_SILKS,
+            true,
+        )),
         value_field: Some(field("Value", spec.template, val_x, val_y, BL_F_FAB, true)),
         ..Default::default()
     };
@@ -155,7 +169,8 @@ pub fn parse_kicad_mod_pads(mod_text: &str) -> Result<Vec<ModPad>, String> {
     let mut rest = mod_text;
     while let Some(idx) = rest.find("(pad ") {
         let chunk = &rest[idx..];
-        let end = matching_paren(chunk).ok_or_else(|| "unterminated (pad …) in .kicad_mod".to_string())?;
+        let end = matching_paren(chunk)
+            .ok_or_else(|| "unterminated (pad …) in .kicad_mod".to_string())?;
         let pad_sexpr = &chunk[..=end];
         pads.push(parse_one_pad(pad_sexpr)?);
         rest = &chunk[end + 1..];
@@ -311,7 +326,10 @@ pub struct LoadedTemplate {
     pub courtyard: Aabb,
 }
 
-pub fn load_template(pretty_dir: &std::path::Path, template: &str) -> Result<LoadedTemplate, String> {
+pub fn load_template(
+    pretty_dir: &std::path::Path,
+    template: &str,
+) -> Result<LoadedTemplate, String> {
     let path = pretty_dir.join(format!("{template}.kicad_mod"));
     if !path.exists() {
         return Err(format!(
@@ -343,7 +361,8 @@ fn parse_one_pad(sexpr: &str) -> Result<ModPad, String> {
         ModPadShape::Rect
     };
     let at = tuple_after(sexpr, "(at ").ok_or_else(|| format!("pad {number} missing (at)"))?;
-    let size = tuple_after(sexpr, "(size ").ok_or_else(|| format!("pad {number} missing (size)"))?;
+    let size =
+        tuple_after(sexpr, "(size ").ok_or_else(|| format!("pad {number} missing (size)"))?;
     let drill = tuple_after(sexpr, "(drill ").map(|v| v[0]);
     Ok(ModPad {
         number,
