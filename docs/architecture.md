@@ -44,8 +44,9 @@ Start 10 with `kicad-10` (`/usr/bin/kicad-10` from the .deb, source
 socket is `/tmp/kicad/api.sock`. Starting the `.AppImage` or
 `/usr/bin/kicad` (9) breaks nets or the socket.
 
-The optional `kicad-routing-tools` .deb is a Pcbnew plugin. It does not
-use this IPC session; kicad-mcp does not invoke it.
+The optional `kicad-routing-tools` .deb is a Pcbnew plugin. `autoroute_nets`
+runs its CLI (`py_router/route.py`) and reloads the open board via
+`RevertDocument`; it does not press the wx Route button.
 
 ## Outline replace
 

@@ -9,6 +9,7 @@
 //! 4. `connect_pins` sets `Pad.net` (UpdateItems). Tracks/vias/zones are CreateItems.
 //! 5. Copper: tracks, vias, stitch vias, then zones.
 
+pub mod autoroute;
 pub mod builtins;
 pub mod copper;
 pub mod fab;

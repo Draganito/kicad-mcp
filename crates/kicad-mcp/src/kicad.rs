@@ -270,6 +270,18 @@ impl Kicad {
         self.client.save_document().await.map_err(fmt_err)
     }
 
+    pub async fn revert_document(&self) -> Result<(), String> {
+        self.client.revert_document().await.map_err(fmt_err)
+    }
+
+    pub async fn run_action(&self, action: &str) -> Result<(), String> {
+        self.client
+            .run_action(action)
+            .await
+            .map(|_| ())
+            .map_err(fmt_err)
+    }
+
     pub async fn refresh(&self) -> Result<(), String> {
         use kicad_ipc_rs::model::common::EditorFrameType;
         self.client

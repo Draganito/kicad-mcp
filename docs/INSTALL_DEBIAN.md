@@ -113,9 +113,9 @@ Erwartet: Version 10.x, `has_open_board: true`, `net_ipc_persists: true`.
 Typischer Ablauf:
 
 1. MCP: Umriss, LCSC-Teile, platzieren, **Netze** (Ratsnest)
-2. Kupfer: selbst in KiCad, oder Plugin
-   **Werkzeuge → Externe Plugins → KiCad Routing Tools**
-3. GND/5V oft als Fläche, nicht autorouten
+2. Kupfer: selbst in KiCad, Plugin-Dialog, oder MCP `autoroute_nets`
+   mit **genannten** Netzen (nie GND, nie unbenutzte GPIOs)
+3. GND/5V als Fläche (`set_copper_zone`), 5V nur auf Wunsch autorouten
 4. `check_board`, bei Bedarf `export_manufacturing`
 5. `save_board` **nur wenn du es willst**
 
@@ -125,7 +125,8 @@ Rückgängig: **Ctrl+Z** in KiCad. `.kicad_pcb` nicht von Hand editieren.
 
 ## 6. Was die Pakete nicht tun
 
-- kicad-mcp **drückt nicht** den Route-Knopf im Plugin.
+- kicad-mcp **drückt nicht** den Route-Knopf. `autoroute_nets` startet
+  die Plugin-**CLI** und lädt die Datei neu (kein Ctrl+Z).
 - Das Plugin **legt keine** Teile und setzt keine Netze.
 - System-`apt install kicad` bleibt 9 — ignorieren.
 - Die `.deb`s enthalten kein AppImage (zu groß, fremde Lizenz).

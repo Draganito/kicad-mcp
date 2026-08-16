@@ -54,7 +54,8 @@ Danach typischer Ablauf:
 2. `download_lcsc_part` — LCSC-C-Nummer (z. B. C14663)
 3. `place_footprint` / `place_parts` / `place_matrix`
 4. `connect_many` — Netze (Ratsnest)
-5. `add_track` / `set_copper_zone` — Kupfer
+5. `add_track` / `set_copper_zone` — Kupfer; oder `autoroute_nets`
+   mit genannten Signalnetzen (nicht GND)
 6. `check_board` — bevor die KI „fertig“ sagt
 7. `export_manufacturing` — Gerber-Zip + BOM + CPL für JLCPCB
    (Silk ohne U1/C3-Beschriftung — sonst DFM „Silkscreen to pad“)

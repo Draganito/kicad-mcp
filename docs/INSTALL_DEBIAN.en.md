@@ -111,9 +111,9 @@ Expect: version 10.x, `has_open_board: true`, `net_ipc_persists: true`.
 Typical flow:
 
 1. MCP: outline, LCSC parts, place, **nets** (ratsnest)
-2. Copper: by hand in KiCad, or
-   **Tools → External Plugins → KiCad Routing Tools**
-3. GND/5V are usually pours, not autorouted
+2. Copper: by hand in KiCad, the plugin dialog, or MCP `autoroute_nets`
+   with **named** nets (never GND, never unused GPIOs)
+3. GND/5V as pours (`set_copper_zone`); autoroute 5V only if asked
 4. `check_board`, then `export_manufacturing` if needed
 5. `save_board` **only when you ask**
 
@@ -123,7 +123,8 @@ Undo: **Ctrl+Z** in KiCad. Do not edit `.kicad_pcb` by hand.
 
 ## 6. What the packages do not do
 
-- kicad-mcp does **not** press Route in the plugin.
+- kicad-mcp does **not** press Route. `autoroute_nets` runs the plugin
+  **CLI** and reloads the file (no Ctrl+Z).
 - The plugin does **not** place parts or assign nets.
 - Distro `apt install kicad` stays 9 — ignore it.
 - The debs do not ship the AppImage (too large, third-party license).

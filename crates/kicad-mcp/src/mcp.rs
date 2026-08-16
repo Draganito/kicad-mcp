@@ -850,6 +850,22 @@ impl KicadMcp {
         .await
     }
 
+    #[tool(
+        description = "Autoroute named nets via the KiCad Routing Tools CLI (not the wx dialog). nets is required — never all nets. GND/VSS are refused (pour a zone). USB_DN and USB_DP must be passed together (routed as two singles, not a pair). Saves, writes the .kicad_pcb through the plugin, reloads KiCad. Undo for this step is gone. Needs kicad-routing-tools-setup and KiCad 10 via kicad-10. Only when the human wants autorouting."
+    )]
+    async fn autoroute_nets(
+        &self,
+        Parameters(args): Parameters<AutorouteNetsArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        if let Some(refusal) = self.require_write() {
+            return refusal;
+        }
+        with_kicad(self, move |k| async move {
+            crate::autoroute::autoroute_nets(&k, &args.nets).await
+        })
+        .await
+    }
+
     #[tool(description = "Save the open board to its current path.")]
     async fn save_board(&self) -> Result<CallToolResult, McpError> {
         if let Some(refusal) = self.require_write() {
@@ -1097,6 +1113,12 @@ pub struct ExportManufacturingArgs {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct AutorouteNetsArgs {
+    /// Net names to route. Required. Never `*` or an empty list. GND is refused.
+    pub nets: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct LcscArgs {
     /// e.g. `"C25804"` or `"C2980298"`.
     pub lcsc_code: String,
@@ -1279,7 +1301,7 @@ async fn commit_connect(
 impl ServerHandler for KicadMcp {
     fn get_info(&self) -> ServerInfo {
         let write_note = if self.allow_ai_write {
-            "Write tools are ENABLED (--allow-ai-write): download_lcsc_part, place_footprint, place_parts, place_matrix, remove_footprint, clear_board, set_board_outline, connect_pins, connect_many, add_track, add_tracks, add_via, add_vias, stitch_via, set_copper_zone, ripup_wire, save_board, export_manufacturing."
+            "Write tools are ENABLED (--allow-ai-write): download_lcsc_part, place_footprint, place_parts, place_matrix, remove_footprint, clear_board, set_board_outline, connect_pins, connect_many, add_track, add_tracks, add_via, add_vias, stitch_via, set_copper_zone, autoroute_nets, ripup_wire, save_board, export_manufacturing."
         } else {
             "Write tools are DISABLED. Relaunch with --allow-ai-write."
         };
@@ -1295,9 +1317,11 @@ impl ServerHandler for KicadMcp {
              The pink A4 frame is the drawing sheet, not the PCB. Board size is an Edge.Cuts rectangle \
              (set_board_outline); default origin is the sheet centre, not 0,0. Outline replace defaults to true. \
              Place on free F.CrtYd space inside the board; placement refuses courtyard overlap. \
-             Typical write path: clear_board, set_board_outline, place_parts or place_matrix, connect_many, stitch_via, add_tracks, set_copper_zone. \
+             Typical write path: clear_board, set_board_outline, place_parts or place_matrix, connect_many, \
+             autoroute_nets for named signal nets (not GND), set_copper_zone for 5V/GND. \
              No move_footprint (remove then place). Copper: get_routing_scene then ripup_wire with segment_id. \
-             No autorouter. Do not edit .kicad_pcb by hand. \
+             autoroute_nets calls the Routing Tools CLI and reloads the file (no Ctrl+Z for that step). \
+             Do not edit .kicad_pcb by hand. \
              export_manufacturing writes JLCPCB files: <stem>_gerbers.zip + _bom.csv + _cpl.csv (needs kicad-cli). \
              {write_note}"
             ),

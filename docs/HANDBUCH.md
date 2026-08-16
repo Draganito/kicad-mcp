@@ -29,8 +29,8 @@ Einstieg mit Checkliste: [ANLEITUNG_FUER_ANFAENGER.md](../ANLEITUNG_FUER_ANFAENG
 
 kicad-mcp ist ein **stdio-MCP-Server** für Cursor. Er steuert einen
 **laufenden KiCad-PCB-Editor** über die offizielle IPC-API. KiCad bleibt
-der Editor; dieses Programm ist kein zweiter Layout-Editor und kein
-Autorouter.
+der Editor; dieses Programm ist kein zweiter Layout-Editor.
+`autoroute_nets` kann die Companion-CLI für genannte Netze starten.
 
 Footprints für JLCPCB kommen von **EasyEDA / LCSC**
 (`download_lcsc_part`). Builtin-Teile: `WirePad_PTH`,
@@ -160,10 +160,15 @@ KiCad ab. Auf **KiCad 10** bleibt der Name nach Speichern erhalten;
 - `set_copper_zone` — Rechteck oder Polygon; Netz z. B. `5V` / `GND`;
   Lage `F.Cu` oder `B.Cu`; danach Refill
 - `ripup_wire` — `segment_id` aus `get_routing_scene`
+- `autoroute_nets` — genannte Netze über die Plugin-CLI, dann Reload
 
-kicad-mcp hat keinen Autorouter. Kupfer kannst du selbst legen oder
-mit dem optionalen Plugin **KiCad Routing Tools** (zweites Deb,
-`kicad-routing-tools-setup`). MCP ruft das Plugin nicht auf.
+`autoroute_nets` startet die **CLI** des optionalen Plugins KiCad
+Routing Tools (nicht den wx-Dialog). Voraussetzung:
+`kicad-routing-tools-setup` und KiCad 10 über `kicad-10`.
+`nets` ist Pflicht — nie `*` / alle Netze. GND/VSS werden abgelehnt
+(Fläche). USB_DN und USB_DP nur zusammen (zwei Einzelnetze, kein Paar).
+Der Schritt speichert, schreibt die Datei und lädt neu — **kein Ctrl+Z**.
+Nur wenn du Autorouting oder eine Platine A–Z inkl. Kupfer willst.
 Keine parallelen Copper-Writes: KiCad `BeginCommit` verträgt das nicht.
 
 ## 9. Werkzeugkatalog
@@ -187,14 +192,16 @@ Keine parallelen Copper-Writes: KiCad `BeginCommit` verträgt das nicht.
 | `add_track` / `add_tracks` | Schreiben — Leiterbahn |
 | `add_via` / `add_vias` | Schreiben — Via |
 | `set_copper_zone` | Schreiben — Pour + Refill |
+| `autoroute_nets` | Schreiben — CLI-Autorouter, genannte Netze |
 | `ripup_wire` | Schreiben |
 | `save_board` | Schreiben — nur auf Wunsch |
 | `export_manufacturing` | Schreiben — JLCPCB: `*_gerbers.zip` + `*_bom.csv` + `*_cpl.csv` (`kicad-cli`) |
 
 ## 10. Speichern und Undo
 
-Jeder Write liegt auf KiCads Undo-Stack (**Ctrl+Z**). `save_board` nur
-wenn der Mensch es verlangt.
+Jeder Write liegt auf KiCads Undo-Stack (**Ctrl+Z**), außer
+`autoroute_nets` (Datei-Reload). `save_board` nur wenn der Mensch es
+verlangt; `autoroute_nets` speichert intern, damit die CLI schreiben kann.
 
 `export_manufacturing` speichert die offene Platine, füllt Zonen neu
 und schreibt drei JLCPCB-Dateien ins Projektverzeichnis oder
@@ -236,8 +243,8 @@ Nur MCP: `SKIP_ROUTING_TOOLS=1 dist/make_beta_package.sh`.
 
 ## 13. Bewusste Grenzen
 
-- Kein Autorouter in kicad-mcp (optional: zweites Deb, Plugin in Pcbnew),
-  kein Schema-Editor, kein `move_footprint`.
+- Kein Schema-Editor, kein `move_footprint`. Autorouter nur über
+  `autoroute_nets` (genannte Netze, Companion-Deb).
 - Kein Edit von `.kicad_pcb` über diesen Server.
 - Maximal 150 Teile / Tracks / Vias pro Undo-Batch.
 - Polygon-Umriss max. 400 Punkte.

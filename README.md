@@ -2,7 +2,8 @@
 
 Mini MCP server that drives a **running KiCad PCB editor** from Cursor
 over KiCad's official IPC API. Parts come from **EasyEDA / LCSC** so
-JLCPCB footprints match. Not an autorouter, not a second PCB editor.
+JLCPCB footprints match. Not a second PCB editor. Named-net autoroute
+is optional (`autoroute_nets`, companion Routing Tools deb).
 
 **License: [AGPL-3.0-only](LICENSE)** — Copyright © 2026 Dragan Bojovic.
 See [NOTICE](NOTICE).
@@ -97,8 +98,8 @@ Read: `board_summary`, `get_footprints`, `get_nets`, `get_routing_scene`,
 Write: `download_lcsc_part`, `place_footprint`, `place_parts`,
 `place_matrix`, `remove_footprint`, `clear_board`, `set_board_outline`,
 `connect_pins`, `connect_many`, `add_track`, `add_tracks`, `add_via`,
-`add_vias`, `stitch_via`, `set_copper_zone`, `ripup_wire` (by `segment_id`),
-`save_board`, `export_manufacturing`.
+`add_vias`, `stitch_via`, `set_copper_zone`, `autoroute_nets`,
+`ripup_wire` (by `segment_id`), `save_board`, `export_manufacturing`.
 
 Coordinates are **KiCad native millimetres** (board origin, +x right,
 +y up). Start with `board_summary`.

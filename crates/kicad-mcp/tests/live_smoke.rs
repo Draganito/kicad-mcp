@@ -236,3 +236,20 @@ async fn assign_vias_gnd_and_refill() {
         nets.iter().map(|n| &n.name).collect::<Vec<_>>()
     );
 }
+
+#[tokio::test]
+#[ignore = "needs KiCad 10, Routing Tools setup, and an open board"]
+async fn live_autoroute_named_net_reloads() {
+    let k = Kicad::connect().await.expect("KiCad IPC");
+    let before = k.summary().await.expect("summary");
+    assert!(before.has_open_board, "open a board in KiCad first");
+    let result = kicad_mcp::autoroute::autoroute_nets(&k, &["5V".into()])
+        .await
+        .expect("autoroute_nets");
+    eprintln!("{}", serde_json::to_string_pretty(&result).unwrap());
+    assert!(result.reloaded, "KiCad must show the CLI copper after reload");
+    assert!(
+        result.track_count > before.track_count || result.via_count > before.via_count,
+        "expected new 5V copper after reload"
+    );
+}
