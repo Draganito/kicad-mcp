@@ -39,6 +39,8 @@ DEB=$(cd "$PROJECT_DIR" && cargo deb -p kicad-mcp --no-build -o "$PROJECT_DIR/di
 DEB_LISTING=$(dpkg-deb -c "$DEB")
 for f in \
     ./usr/bin/kicad-mcp \
+    ./usr/bin/kicad-10 \
+    ./usr/share/applications/kicad-10.desktop \
     ./usr/share/kicad-mcp/cursor-setup/.cursor/mcp.json \
     ./usr/share/kicad-mcp/cursor-setup/.cursor/rules/kicad-mcp.mdc \
     ./usr/share/kicad-mcp/cursor-setup/.cursorignore \
@@ -49,6 +51,8 @@ for f in \
     ./usr/share/doc/kicad-mcp/ANLEITUNG_FUER_ANFAENGER.md \
     ./usr/share/doc/kicad-mcp/docs/HANDBUCH.md \
     ./usr/share/doc/kicad-mcp/docs/MANUAL.md \
+    ./usr/share/doc/kicad-mcp/docs/INSTALL_DEBIAN.md \
+    ./usr/share/doc/kicad-mcp/docs/INSTALL_DEBIAN.en.md \
     ./usr/share/doc/kicad-mcp/docs/architecture.md
 do
     grep -q " $f\$" <<<"$DEB_LISTING" \
@@ -63,3 +67,11 @@ DEB_SIZE=$(stat -c%s "$DEB")
 
 echo
 echo "OK: $DEB  ($(du -h "$DEB" | cut -f1))"
+
+if [[ "${SKIP_ROUTING_TOOLS:-}" != "1" ]]; then
+    echo "==> companion: kicad-routing-tools"
+    "$PROJECT_DIR/dist/make_routing_tools_deb.sh"
+fi
+echo
+echo "Release assets (do not commit):"
+ls -lh "$PROJECT_DIR"/dist/kicad-mcp_*.deb "$PROJECT_DIR"/dist/kicad-routing-tools_*.deb 2>/dev/null || true

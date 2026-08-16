@@ -8,27 +8,33 @@ JLCPCB footprints match. Not an autorouter, not a second PCB editor.
 See [NOTICE](NOTICE).
 
 Deutsche Einstiegsanleitung: [ANLEITUNG_FUER_ANFAENGER.md](ANLEITUNG_FUER_ANFAENGER.md).
+Neuinstallation Debian + Cursor: [docs/INSTALL_DEBIAN.md](docs/INSTALL_DEBIAN.md)
+/ [docs/INSTALL_DEBIAN.en.md](docs/INSTALL_DEBIAN.en.md).
 Handbuch A–Z: [docs/HANDBUCH.md](docs/HANDBUCH.md) (Deutsch) /
 [docs/MANUAL.md](docs/MANUAL.md) (English).
 Architecture: [docs/architecture.md](docs/architecture.md).
 
 ## Download (precompiled, nothing to build)
 
-Grab the ready-to-run package from the
+Grab the packages from the
 **[Releases page](https://github.com/Draganito/kicad-mcp/releases)**:
-`kicad-mcp_<version>_amd64.deb` is the one release file — the binary,
-Cursor MCP setup, and docs:
+
+- `kicad-mcp_<version>_amd64.deb` — MCP binary, `kicad-10` wrapper,
+  Cursor setup, docs
+- `kicad-routing-tools_0.20.4-2_amd64.deb` — optional autorouter plugin
+  for the KiCad 10 AppImage (MIT, [drandyhaas](https://github.com/drandyhaas/KiCadRoutingTools)).
+  Does not call kicad-mcp; kicad-mcp does not call it.
 
 ```bash
-sudo apt install ./kicad-mcp_<version>_amd64.deb
+sudo apt install ./kicad-mcp_<version>_amd64.deb ./kicad-routing-tools_0.20.4-2_amd64.deb
+kicad-routing-tools-setup   # as your user, once
 ```
 
 Debian/Ubuntu x86-64, glibc 2.39+. You need **KiCad 10** with
 Preferences → Plugins → **Enable IPC API**. On Debian 13, system KiCad
-is 9.0.2 — do not use it. Start the official AppImage with
-[`scripts/kicad-10.sh`](scripts/kicad-10.sh) (install as
-`~/Programme/kicad-10.sh`) so the socket is `/tmp/kicad/api.sock`. See
-[docs/HANDBUCH.md](docs/HANDBUCH.md) §3 / [docs/MANUAL.md](docs/MANUAL.md) §3.
+is 9.0.2 — do not use it. After the mcp deb, start the official AppImage
+with `kicad-10` (`TMPDIR=/tmp`, socket `/tmp/kicad/api.sock`). See
+[docs/INSTALL_DEBIAN.md](docs/INSTALL_DEBIAN.md).
 Copy the contents of `/usr/share/kicad-mcp/cursor-setup/` (`.cursor/`
 **and** `.cursorignore`) into the folder you open in Cursor. Everything
 below is only needed if you want to build from source.
@@ -60,6 +66,7 @@ Debian package (needs [`cargo-deb`](https://crates.io/crates/cargo-deb)):
 cargo install cargo-deb --locked
 dist/make_beta_package.sh
 # → dist/kicad-mcp_<version>_amd64.deb
+# → dist/kicad-routing-tools_0.20.4-2_amd64.deb
 ```
 
 From a source tree, point Cursor at the **built binary**, not
@@ -120,7 +127,8 @@ crates/easyeda-kicad  LCSC/EasyEDA → .kicad_mod / .kicad_sym
 contrib/              Cursor MCP config for the .deb
 docs/                 Manuals + architecture notes
 dist/                 Deb build script + LIESMICH.txt
-scripts/              KiCad 10 launcher (not shipped in the .deb)
+scripts/              KiCad 10 launcher (also /usr/bin/kicad-10 in the .deb)
+dist/kicad-routing-tools/  companion autorouter .deb (built, not committed)
 ```
 
 ## Credits

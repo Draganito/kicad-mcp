@@ -3,7 +3,8 @@
 #
 # The AppImage remaps TMPDIR into ~/.cache/tmp. kicad-mcp looks at
 # /tmp/kicad/api.sock. Always start KiCad 10 via this wrapper (or a copy
-# at ~/Programme/kicad-10.sh), never the .AppImage directly.
+# at ~/Programme/kicad-10.sh or /usr/bin/kicad-10 from the .deb), never
+# the .AppImage directly.
 #
 # Download: https://www.kicad.org/download/linux/  (Lite is enough)
 # Docs: docs/HANDBUCH.md §3 / docs/MANUAL.md §3
@@ -17,7 +18,10 @@ else
   for cand in \
     "$HOME/Programme/kicad-10.0.5-x86_64.AppImage" \
     "$HOME/Programme/kicad-10.AppImage" \
-    "$HOME/Downloads/kicad-10.0.5-x86_64.AppImage"
+    "$HOME/Downloads/kicad-10.0.5-x86_64.AppImage" \
+    "$HOME/Downloads/kicad-10.AppImage" \
+    /opt/kicad/kicad-10.0.5-x86_64.AppImage \
+    /opt/kicad/kicad-10.AppImage
   do
     if [ -x "$cand" ]; then
       APP="$cand"

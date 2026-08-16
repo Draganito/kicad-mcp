@@ -1,0 +1,68 @@
+#!/bin/bash
+# Install/update KiCad Routing Tools into this user's KiCad 10 plugin dir.
+# Also unpacks CPython 3.11 wheels (numpy/scipy/shapely) so the official
+# KiCad 10 AppImage can import them without pip. Do not run pip from inside
+# KiCad: PYTHONHOME points at the AppImage and /usr/bin/python3 then dies
+# with "No module named encodings".
+set -euo pipefail
+
+SRC=/usr/share/kicad-routing-tools
+ID=com.github.drandyhaas.kicadroutingtools
+
+unpack_wheels() {
+  local dest=$1
+  mkdir -p "$dest"
+  /usr/bin/python3 - "$SRC/python-wheels" "$dest" << 'PY'
+import sys, zipfile, pathlib, shutil
+src, dst = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+if dst.exists():
+    shutil.rmtree(dst)
+dst.mkdir(parents=True)
+for whl in sorted(src.glob("*.whl")):
+    print("unpack", whl.name)
+    with zipfile.ZipFile(whl) as z:
+        z.extractall(dst)
+print("python deps ->", dst)
+PY
+}
+
+install_into() {
+  local ver=$1
+  local dest="$HOME/.local/share/kicad/$ver/3rdparty/plugins/$ID"
+  local res="$HOME/.local/share/kicad/$ver/3rdparty/resources/$ID"
+  local script="$HOME/.local/share/kicad/$ver/scripting/plugins/KiCadRoutingTools"
+  local py="$HOME/.local/share/kicad/$ver/3rdparty/python"
+  mkdir -p "$dest" "$res" "$(dirname "$script")"
+  rm -rf "${dest:?}"/*
+  cp -a "$SRC/plugins/." "$dest/"
+  if [[ -d "$SRC/resources" ]]; then
+    cp -a "$SRC/resources/." "$res/"
+  fi
+  ln -sfn "$dest" "$script"
+  unpack_wheels "$py"
+  echo "installed $ver -> $dest"
+}
+
+if [[ "${1:-}" == "--deps" ]]; then
+  unpack_wheels "$HOME/.local/share/kicad/10.0/3rdparty/python"
+  if [[ -d "$HOME/.local/share/kicad/9.0" ]]; then
+    unpack_wheels "$HOME/.local/share/kicad/9.0/3rdparty/python"
+  fi
+  echo "OK. Restart KiCad 10 (kicad-10) if it was open."
+  exit 0
+fi
+
+if [[ ! -d "$SRC/plugins" ]]; then
+  echo "ERROR: $SRC/plugins missing (is the .deb installed?)" >&2
+  exit 1
+fi
+
+install_into 10.0
+if [[ -d "$HOME/.local/share/kicad/9.0" ]]; then
+  install_into 9.0
+fi
+
+echo
+echo "Start KiCad 10 via kicad-10 (not the AppImage directly)."
+echo "Pcbnew → Tools → External Plugins → KiCad Routing Tools"
+echo "If KiCad was already open, restart it so the plugin reloads."

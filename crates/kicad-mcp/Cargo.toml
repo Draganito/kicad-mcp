@@ -43,10 +43,13 @@ over KiCad's official IPC API. LCSC/EasyEDA footprints so JLCPCB
 geometry matches. Source: https://github.com/Draganito/kicad-mcp"""
 section = "electronics"
 priority = "optional"
+revision = "2"
 depends = "$auto"
 recommends = "kicad"
 assets = [
     ["target/release/kicad-mcp", "usr/bin/", "755"],
+    ["../../scripts/kicad-10.sh", "usr/bin/kicad-10", "755"],
+    ["../../dist/kicad-10.desktop", "usr/share/applications/", "644"],
     ["../../README.md", "usr/share/doc/kicad-mcp/", "644"],
     ["../../dist/LIESMICH.txt", "usr/share/doc/kicad-mcp/", "644"],
     ["../../LICENSE", "usr/share/doc/kicad-mcp/LICENSE.txt", "644"],

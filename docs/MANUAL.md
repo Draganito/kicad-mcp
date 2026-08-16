@@ -2,6 +2,7 @@
 
 Complete A-to-Z reference, v0.1.0.
 German: [HANDBUCH.md](HANDBUCH.md).
+Fresh Debian + Cursor: [INSTALL_DEBIAN.en.md](INSTALL_DEBIAN.en.md).
 Short German starter: [ANLEITUNG_FUER_ANFAENGER.md](../ANLEITUNG_FUER_ANFAENGER.md).
 
 ---
@@ -40,15 +41,19 @@ is not shipped in this package.
 
 ### Prebuilt package
 
-From [GitHub Releases](https://github.com/Draganito/kicad-mcp/releases):
+From [GitHub Releases](https://github.com/Draganito/kicad-mcp/releases)
+both files (MCP + optional autorouter):
 
 ```bash
-sudo apt install ./kicad-mcp_<version>_amd64.deb
+sudo apt install ./kicad-mcp_<version>_amd64.deb ./kicad-routing-tools_0.20.4-2_amd64.deb
+kicad-routing-tools-setup
 ```
 
+Step by step: [INSTALL_DEBIAN.en.md](INSTALL_DEBIAN.en.md).
 Debian/Ubuntu x86-64, glibc 2.39+. **KiCad 10** must be running
 (`recommends: kicad` is only the distro package — on Debian 13 that is
-9.0.2 and is not enough for nets).
+9.0.2 and is not enough for nets). After the MCP `.deb`, `kicad-10`
+starts the AppImage with `TMPDIR=/tmp`.
 
 ### From source
 
@@ -73,13 +78,12 @@ kicad-mcp targets **KiCad 10**. Nets from `connect_many` /
    MCP looks for `ipc:///tmp/kicad/api.sock`.
 
 ```bash
-install -m 755 scripts/kicad-10.sh ~/Programme/kicad-10.sh
-~/Programme/kicad-10.sh
+kicad-10
 ```
 
-`scripts/kicad-10.sh` sets `TMPDIR=/tmp` and launches the AppImage from
-`~/Programme/` (or `KICAD_10_APPIMAGE`). Desktop entry:
-`Exec=$HOME/Programme/kicad-10.sh`.
+`/usr/bin/kicad-10` (from the `.deb`, source `scripts/kicad-10.sh`) sets
+`TMPDIR=/tmp` and launches the AppImage from `~/Programme/` (or
+`KICAD_10_APPIMAGE`). Menu entry: **KiCad 10 (AppImage)**.
 
 4. Open the PCB editor (a board must be loaded).
 5. **Preferences → Plugins → Enable IPC API**, restart KiCad.
@@ -152,8 +156,10 @@ the name persists after save; `get_nets` / `check_board` must show it.
   layer `F.Cu` or `B.Cu`; then refill
 - `ripup_wire` — `segment_id` from `get_routing_scene`
 
-No autorouter. Do not send parallel copper writes: KiCad `BeginCommit`
-races.
+kicad-mcp has no autorouter. Route copper yourself or with the optional
+**KiCad Routing Tools** plugin (second deb, `kicad-routing-tools-setup`).
+MCP does not call the plugin. Do not send parallel copper writes: KiCad
+`BeginCommit` races.
 
 ## 9. Tool catalogue
 
@@ -204,25 +210,28 @@ cargo install cargo-deb --locked
 dist/make_beta_package.sh
 ```
 
-Produces `dist/kicad-mcp_<version>_amd64.deb` (binary + docs + Cursor
-setup). Do not commit the `.deb` — attach it as a GitHub Release asset.
+Produces `dist/kicad-mcp_<version>_amd64.deb` (binary + `kicad-10` +
+docs + Cursor setup) and `dist/kicad-routing-tools_*.deb`. Do not
+commit the `.deb` files — attach them as GitHub Release assets.
+MCP only: `SKIP_ROUTING_TOOLS=1 dist/make_beta_package.sh`.
 
 ## 12. Troubleshooting
 
 | Symptom | Cause / fix |
 | --- | --- |
 | connect / No such file | KiCad closed, or IPC API off |
-| `api.sock` missing (AppImage 10) | Started the `.AppImage` directly — use `~/Programme/kicad-10.sh` (`TMPDIR=/tmp`) |
+| `api.sock` missing (AppImage 10) | Started the `.AppImage` directly — use `kicad-10` (`TMPDIR=/tmp`) |
 | Write refused | `--allow-ai-write` missing |
 | Copper at the sheet corner | Pad-bake missing — regression in `place.rs` |
 | `replaced_segments: 0` | Stale MCP binary; reload MCP after a Rust fix |
 | Hole in the copper zone | Inner Edge.Cuts was a cutout; refill zones (B in KiCad) or `set_board_outline` again |
-| `net_count: 1`, many unconnected / `net_ipc_persists: false` | Wrong KiCad (9) — use `~/Programme/kicad-10.sh` |
+| `net_count: 1`, many unconnected / `net_ipc_persists: false` | Wrong KiCad (9) — use `kicad-10` |
 | Commit already in progress | Do not send copper batches in parallel |
 
 ## 13. Deliberate limits
 
-- No autorouter, no schematic editor, no `move_footprint`.
+- No autorouter in kicad-mcp (optional: second deb, plugin in Pcbnew),
+  no schematic editor, no `move_footprint`.
 - No editing `.kicad_pcb` through this server.
 - Max 150 parts / tracks / vias per undo batch.
 - Polygon outline max 400 points.

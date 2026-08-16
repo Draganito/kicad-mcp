@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=KiCad 10 (AppImage)
+Comment=Start the official KiCad 10 AppImage with TMPDIR=/tmp for kicad-mcp
+Exec=/usr/bin/kicad-10
+Icon=kicad
+Terminal=false
+Categories=Development;Electronics;Engineering;
+StartupNotify=true

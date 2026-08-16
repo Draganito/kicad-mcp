@@ -2,6 +2,7 @@
 
 Vollständige Anleitung von A bis Z, Stand v0.1.0.
 English: [MANUAL.md](MANUAL.md).
+Neuinstallation Debian + Cursor: [INSTALL_DEBIAN.md](INSTALL_DEBIAN.md).
 Einstieg mit Checkliste: [ANLEITUNG_FUER_ANFAENGER.md](../ANLEITUNG_FUER_ANFAENGER.md).
 
 ---
@@ -42,15 +43,19 @@ und liegt nicht in diesem Paket.
 
 ### Fertiges Paket
 
-Von [GitHub Releases](https://github.com/Draganito/kicad-mcp/releases):
+Von [GitHub Releases](https://github.com/Draganito/kicad-mcp/releases)
+beide Dateien (MCP + optionaler Autorouter):
 
 ```bash
-sudo apt install ./kicad-mcp_<version>_amd64.deb
+sudo apt install ./kicad-mcp_<version>_amd64.deb ./kicad-routing-tools_0.20.4-2_amd64.deb
+kicad-routing-tools-setup
 ```
 
+Schritt für Schritt: [INSTALL_DEBIAN.md](INSTALL_DEBIAN.md).
 Debian/Ubuntu x86-64, glibc 2.39+. **KiCad 10** muss laufen
 (`recommends: kicad` ist nur das Systempaket — auf Debian 13 ist das
-9.0.2 und reicht nicht für Netze).
+9.0.2 und reicht nicht für Netze). Nach der MCP-`.deb` startet
+`kicad-10` das AppImage mit `TMPDIR=/tmp`.
 
 ### Aus dem Quellcode
 
@@ -76,13 +81,12 @@ nicht verwenden.
    `~/.cache/tmp` — MCP sucht `ipc:///tmp/kicad/api.sock`.
 
 ```bash
-install -m 755 scripts/kicad-10.sh ~/Programme/kicad-10.sh
-~/Programme/kicad-10.sh
+kicad-10
 ```
 
-`scripts/kicad-10.sh` setzt `TMPDIR=/tmp` und startet das AppImage aus
-`~/Programme/` (oder `KICAD_10_APPIMAGE`). Menüeintrag:
-`Exec=$HOME/Programme/kicad-10.sh`.
+`/usr/bin/kicad-10` (aus der `.deb`, Quelle `scripts/kicad-10.sh`) setzt
+`TMPDIR=/tmp` und startet das AppImage aus `~/Programme/` (oder
+`KICAD_10_APPIMAGE`). Menüeintrag: **KiCad 10 (AppImage)**.
 
 4. PCB-Editor öffnen (eine Platine muss geladen sein).
 5. **Einstellungen → Plugins → IPC-API aktivieren**, KiCad neu starten.
@@ -157,8 +161,10 @@ KiCad ab. Auf **KiCad 10** bleibt der Name nach Speichern erhalten;
   Lage `F.Cu` oder `B.Cu`; danach Refill
 - `ripup_wire` — `segment_id` aus `get_routing_scene`
 
-Kein Autorouter. Keine parallelen Copper-Writes: KiCad
-`BeginCommit` verträgt das nicht.
+kicad-mcp hat keinen Autorouter. Kupfer kannst du selbst legen oder
+mit dem optionalen Plugin **KiCad Routing Tools** (zweites Deb,
+`kicad-routing-tools-setup`). MCP ruft das Plugin nicht auf.
+Keine parallelen Copper-Writes: KiCad `BeginCommit` verträgt das nicht.
 
 ## 9. Werkzeugkatalog
 
@@ -210,26 +216,28 @@ cargo install cargo-deb --locked
 dist/make_beta_package.sh
 ```
 
-Erzeugt `dist/kicad-mcp_<version>_amd64.deb` (Binary + Doku +
-Cursor-Setup). Das `.deb` nicht ins Git legen — als GitHub-Release-
-Asset hochladen.
+Erzeugt `dist/kicad-mcp_<version>_amd64.deb` (Binary + `kicad-10` +
+Doku + Cursor-Setup) und `dist/kicad-routing-tools_*.deb`. Die `.deb`s
+nicht ins Git legen — als GitHub-Release-Assets hochladen.
+Nur MCP: `SKIP_ROUTING_TOOLS=1 dist/make_beta_package.sh`.
 
 ## 12. Probleme lösen
 
 | Symptom | Ursache / Fix |
 | --- | --- |
 | connect / No such file | KiCad zu, oder IPC API aus |
-| `api.sock` fehlt (AppImage 10) | Direkt die `.AppImage` gestartet — `~/Programme/kicad-10.sh` nutzen (`TMPDIR=/tmp`) |
+| `api.sock` fehlt (AppImage 10) | Direkt die `.AppImage` gestartet — `kicad-10` nutzen (`TMPDIR=/tmp`) |
 | Write refused | `--allow-ai-write` fehlt |
 | Kupfer in der Blatt-Ecke | Pad-Bake fehlt — Regression in `place.rs` |
 | `replaced_segments: 0` | Altes MCP-Binary; nach Rust-Fix MCP neu laden |
 | Loch in der Kupferzone | Inneres Edge.Cuts war ein Ausschnitt; Zonen neu füllen (B in KiCad) oder `set_board_outline` erneut |
-| `net_count: 1`, viele unconnected / `net_ipc_persists: false` | Falsches KiCad (9) — `~/Programme/kicad-10.sh` |
+| `net_count: 1`, viele unconnected / `net_ipc_persists: false` | Falsches KiCad (9) — `kicad-10` |
 | Commit already in progress | Copper-Batches nicht parallel senden |
 
 ## 13. Bewusste Grenzen
 
-- Kein Autorouter, kein Schema-Editor, kein `move_footprint`.
+- Kein Autorouter in kicad-mcp (optional: zweites Deb, Plugin in Pcbnew),
+  kein Schema-Editor, kein `move_footprint`.
 - Kein Edit von `.kicad_pcb` über diesen Server.
 - Maximal 150 Teile / Tracks / Vias pro Undo-Batch.
 - Polygon-Umriss max. 400 Punkte.

@@ -39,10 +39,13 @@ puts copper at the sheet corner.
 `Pad.net` / `Track.net`. `board_summary.net_ipc_persists` is true from
 major version 10.
 
-Start 10 with `scripts/kicad-10.sh` (copy: `~/Programme/kicad-10.sh`).
-The wrapper forces `TMPDIR=/tmp` so the NNG socket is
-`/tmp/kicad/api.sock`. Starting the `.AppImage` or `/usr/bin/kicad` (9)
-breaks nets or the socket.
+Start 10 with `kicad-10` (`/usr/bin/kicad-10` from the .deb, source
+`scripts/kicad-10.sh`). The wrapper forces `TMPDIR=/tmp` so the NNG
+socket is `/tmp/kicad/api.sock`. Starting the `.AppImage` or
+`/usr/bin/kicad` (9) breaks nets or the socket.
+
+The optional `kicad-routing-tools` .deb is a Pcbnew plugin. It does not
+use this IPC session; kicad-mcp does not invoke it.
 
 ## Outline replace
 

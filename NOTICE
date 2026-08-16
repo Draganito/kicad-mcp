@@ -7,3 +7,8 @@ v3.0; see the file LICENSE.
 KiCad is a separate program (GPL-3.0) and is not shipped in this package.
 This MCP server talks to a KiCad PCB editor you already have installed,
 over KiCad's official IPC API.
+
+The optional companion package kicad-routing-tools (same GitHub Releases
+page) redistributes KiCad Routing Tools (MIT, drandyhaas) plus CPython
+3.11 wheels for numpy/scipy/shapely. It is not part of kicad-mcp and
+does not share this AGPL license. See that package's copyright file.

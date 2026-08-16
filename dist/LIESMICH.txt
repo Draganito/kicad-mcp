@@ -15,21 +15,27 @@ Installation
 Was liegt wo
 ------------
   /usr/bin/kicad-mcp                          MCP-Server (stdio, Linux x86-64)
+  /usr/bin/kicad-10                           Wrapper: AppImage mit TMPDIR=/tmp
+  /usr/share/applications/kicad-10.desktop    Menüeintrag
   /usr/share/kicad-mcp/cursor-setup/          Cursor-Setup: MCP-Konfig,
                                               KI-Regeln, .cursorignore
   /usr/share/doc/kicad-mcp/                   Diese Datei, README,
                                               LICENSE.txt, docs — darin
-                                              das Handbuch (A-Z):
+                                              Neuinstallation:
+                                              docs/INSTALL_DEBIAN.md
+                                              Handbuch (A-Z):
                                               docs/HANDBUCH.md (deutsch)
                                               bzw. docs/MANUAL.md (englisch)
 
 Voraussetzungen
 ---------------
 - Debian/Ubuntu x86-64, glibc 2.39+ (ldd --version)
-- KiCad 10, PCB-Editor offen (nicht das Debian-9-Paket)
+- KiCad 10 AppImage, PCB-Editor offen (nicht das Debian-9-Paket)
 - In KiCad: Preferences → Plugins → Enable IPC API, dann KiCad neu starten
-- Start immer über ~/Programme/kicad-10.sh (Vorlage: scripts/kicad-10.sh;
-  TMPDIR=/tmp, sonst findet MCP den Socket nicht). Handbuch §3.
+- Start immer über kicad-10 (TMPDIR=/tmp, sonst findet MCP den Socket
+  nicht). Neuinstallation: docs/INSTALL_DEBIAN.md
+- Optional: kicad-routing-tools_*.deb vom selben Release, dann
+  kicad-routing-tools-setup (als User). MCP und Plugin rufen sich nicht.
 
 Start
 -----

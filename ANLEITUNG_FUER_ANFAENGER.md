@@ -1,14 +1,15 @@
 # kicad-mcp — Einstieg für Anfänger
 
 In 15 Minuten von der `.deb` bis zur ersten Platine in KiCad, gesteuert
-aus Cursor. Das Nachschlagewerk ist [docs/HANDBUCH.md](docs/HANDBUCH.md).
+aus Cursor. Komplette Neuinstallation (AppImage + beide Debs + Cursor):
+[docs/INSTALL_DEBIAN.md](docs/INSTALL_DEBIAN.md).
+Nachschlagewerk: [docs/HANDBUCH.md](docs/HANDBUCH.md).
 
 ## 1. KiCad
 
-1. **KiCad 10** starten — auf Debian immer
-   `~/Programme/kicad-10.sh` (Vorlage: `scripts/kicad-10.sh`), nicht
-   das System-KiCad 9 und nicht die `.AppImage` direkt.
-   Download: [docs/HANDBUCH.md](docs/HANDBUCH.md) §3.
+1. **KiCad 10** starten — auf Debian immer `kicad-10` (liegt nach der
+   `.deb` in `/usr/bin/kicad-10`), nicht das System-KiCad 9 und nicht
+   die `.AppImage` direkt. Download: [docs/INSTALL_DEBIAN.md](docs/INSTALL_DEBIAN.md).
 2. **PCB-Editor** öffnen (eine leere Platine reicht).
 3. **Preferences → Plugins → Enable IPC API** einschalten.
 4. KiCad **neu starten**, PCB-Editor wieder öffnen.
@@ -16,14 +17,18 @@ aus Cursor. Das Nachschlagewerk ist [docs/HANDBUCH.md](docs/HANDBUCH.md).
 Ohne diesen Haken kann kicad-mcp KiCad nicht erreichen.
 `board_summary` muss `10.0.x` und `net_ipc_persists: true` zeigen.
 
-## 2. Paket installieren
+## 2. Pakete installieren
 
 Von der [Releases-Seite](https://github.com/Draganito/kicad-mcp/releases)
-`kicad-mcp_<version>_amd64.deb` laden:
+beide Dateien laden:
 
 ```bash
-sudo apt install ./kicad-mcp_<version>_amd64.deb
+sudo apt install ./kicad-mcp_<version>_amd64.deb ./kicad-routing-tools_0.20.4-2_amd64.deb
+kicad-routing-tools-setup
 ```
+
+`kicad-routing-tools` ist optional (Autorouter in Pcbnew). Setup als
+normaler User, nicht als root. MCP und Plugin rufen sich nicht auf.
 
 ## 3. Cursor anbinden
 
@@ -70,8 +75,9 @@ Ohne Origin liegt ein Rechteck-Umriss in der Blattmitte, nicht bei 0,0.
 | MCP verbindet nicht | IPC API aus, oder PCB-Editor nicht offen |
 | Write-Tools lehnen ab | `--allow-ai-write` fehlt in `mcp.json` |
 | Teile sitzen in der Blatt-Ecke | Pad-Koordinaten nicht gebacken — Bug, nicht du |
-| Netze leer / `net_ipc_persists: false` | System-KiCad 9 statt `~/Programme/kicad-10.sh` |
-| AppImage 10, kein Socket | `.AppImage` direkt gestartet statt `~/Programme/kicad-10.sh` |
+| Netze leer / `net_ipc_persists: false` | System-KiCad 9 statt `kicad-10` |
+| AppImage 10, kein Socket | `.AppImage` direkt gestartet statt `kicad-10` |
+| Plugin: encodings / pip fail | `kicad-routing-tools-setup` als User, nicht pip in KiCad |
 | Altes Edge.Cuts bleibt | `replace` muss true sein (Default); MCP neu laden nach einem Update |
 
 Mehr: [docs/HANDBUCH.md](docs/HANDBUCH.md) Kapitel „Probleme lösen“.
