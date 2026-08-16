@@ -14,7 +14,8 @@ Cursor  --stdio MCP-->  kicad-mcp  --KiCad IPC-->  pcbnew (KiCad 10)
 
 - `kicad-mcp` — MCP tools, IPC session, placement, nets, copper, outline.
 - `easyeda-kicad` — fetch an LCSC C-number and emit `.kicad_mod` /
-  `.kicad_sym` (Y-flip EasyEDA → KiCad).
+  `.kicad_sym` / `{template}.pins.json` (Y-flip EasyEDA → KiCad).
+  Pin names/functions are EasyEDA SVG names, not a manufacturer PDF.
 
 There is no in-process board model. KiCad owns the file. Writes go
 through `CreateItems` / `UpdateItems` / `DeleteItems` inside a KiCad

@@ -44,8 +44,10 @@ below is only needed if you want to build from source.
 
 - **KiCad stays the editor** — this process only talks IPC. Do not
   edit `.kicad_pcb` by hand.
-- **LCSC parts** — `download_lcsc_part` writes EasyEDA geometry into
-  `jlcpcb_parts.pretty` next to the open board.
+- **LCSC parts** — `download_lcsc_part` writes EasyEDA geometry and
+  pin names (`pins.json`) into `jlcpcb_parts.pretty` next to the open
+  board. `get_part_pins` rereads them. Nets follow EasyEDA `pin_name`;
+  a datasheet only after a logic check that EasyEDA cannot be right.
 - **Placement, nets, copper** — footprints (including grids), ratsnest
   nets, tracks, vias, copper zones. Every write is one KiCad undo
   (Ctrl+Z).
@@ -93,7 +95,7 @@ Without `--allow-ai-write`, every write tool refuses.
 ## Tools
 
 Read: `board_summary`, `get_footprints`, `get_nets`, `get_routing_scene`,
-`list_parts`, `check_board`.
+`list_parts`, `get_part_pins`, `check_board`.
 
 Write: `download_lcsc_part`, `place_footprint`, `place_parts`,
 `place_matrix`, `remove_footprint`, `clear_board`, `set_board_outline`,

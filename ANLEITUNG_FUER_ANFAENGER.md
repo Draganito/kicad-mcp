@@ -51,7 +51,10 @@ KiCad-Version, Projektpfad und `has_open_board: true` enthalten.
 Danach typischer Ablauf:
 
 1. `set_board_outline` — Rechteck oder Polygon auf Edge.Cuts
-2. `download_lcsc_part` — LCSC-C-Nummer (z. B. C14663)
+2. `download_lcsc_part` — LCSC-C-Nummer (z. B. C14663); Antwort enthält
+   EasyEDA-Pins (`number` + `pin_name`). Schon geladen:
+   `get_part_pins`. Netze danach, Datenblatt nur wenn EasyEDA logisch
+   nicht stimmen kann.
 3. `place_footprint` / `place_parts` / `place_matrix`
 4. `connect_many` — Netze (Ratsnest)
 5. `add_track` / `set_copper_zone` — Kupfer; oder `autoroute_nets`

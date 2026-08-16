@@ -131,8 +131,11 @@ die Dateien nicht von Hand anfasst.
 ## 6. Bauteile
 
 1. `download_lcsc_part` mit C-Nummer (z. B. `C5348912`) schreibt
-   EasyEDA-Geometrie nach `jlcpcb_parts.pretty` neben dem offenen Board.
+   EasyEDA-Geometrie nach `jlcpcb_parts.pretty` neben dem offenen Board
+   und liefert `pins: [{number, pin_name}]` (EasyEDA-Funktion).
 2. `list_parts` nennt die Template-Namen für `place_footprint`.
+   `get_part_pins` liest dieselben EasyEDA-Namen für ein schon
+   geladenes Template (`{template}.pins.json`).
 3. `place_footprint` / `place_parts` (max. 150, ein Undo) /
    `place_matrix` (Raster: Origin = Zelle 0,0, +x Spalten, +y Zeilen,
    Pitch Mitte-zu-Mitte).
@@ -147,12 +150,22 @@ Blatt-Ecke (0,0), während die API behauptet, das Teil sitze in der Mitte.
 
 ## 7. Netze
 
-`connect_pins` / `connect_many` setzen **Pad.net** (Ratsnest), kein
-Kupfer. Alle Pads mit derselben Pin-Nummer bekommen das Netz
-(Thermal-Cluster, z. B. ESP32-Pad 41). Daisy-Chain: `net` weglassen.
-Das Netz wird in die Parent-FootprintInstance gespliced — ein freies
-Pad-UpdateItems lehnt KiCad ab. Auf **KiCad 10** bleibt der Name nach
-Speichern erhalten; `get_nets` / `check_board` müssen ihn zeigen.
+Pin-Namen und Funktionen kommen von **EasyEDA** (`download_lcsc_part` /
+`get_part_pins`), nicht aus dem Datenblatt-Gedächtnis und nicht aus
+Alladin-`pad_nets`. `connect_pins` / `connect_many` setzen **Pad.net**
+(Ratsnest), kein Kupfer. Alle Pads mit derselben Pin-Nummer bekommen
+das Netz (Thermal-Cluster, z. B. ESP32-Pad 41). Daisy-Chain: `net`
+weglassen. Das Netz wird in die Parent-FootprintInstance gespliced —
+ein freies Pad-UpdateItems lehnt KiCad ab. Auf **KiCad 10** bleibt der
+Name nach Speichern erhalten; `get_nets` / `check_board` müssen ihn
+zeigen.
+
+Ein Hersteller-PDF ist nur erlaubt, wenn eine **Logikprüfung** die
+EasyEDA-Namen unmöglich macht (Beispiel: WROOM-Pad 1 heißt `IO20`,
+obwohl Pin 1 der GND-Eckpin des Moduls ist). Dann harte Fakten holen
+(`datasheet_url`, wenn EasyEDA eine mitliefert), den Widerspruch
+nennen und danach vernetzen. 0603 mit EasyEDA-Namen `1`/`2` haben keine
+Polarität — GND vs. Rail vom Nachbarpad.
 
 ## 8. Kupfer
 
@@ -190,8 +203,9 @@ Keine parallelen Copper-Writes: KiCad `BeginCommit` verträgt das nicht.
 | `get_nets` | Lesen — Netze und Pads |
 | `get_routing_scene` | Lesen — Tracks/Vias + IDs |
 | `list_parts` | Lesen — Templates inkl. Builtins |
+| `get_part_pins` | Lesen — EasyEDA `number` + `pin_name` |
 | `check_board` | Lesen — Pads ohne Netz |
-| `download_lcsc_part` | Schreiben — EasyEDA → Library |
+| `download_lcsc_part` | Schreiben — EasyEDA → Library + Pins |
 | `place_footprint` | Schreiben |
 | `place_parts` | Schreiben — Batch |
 | `place_matrix` | Schreiben — Raster |

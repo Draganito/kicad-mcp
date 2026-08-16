@@ -128,8 +128,11 @@ edit them by hand.
 ## 6. Parts
 
 1. `download_lcsc_part` with a C-number (e.g. `C5348912`) writes EasyEDA
-   geometry into `jlcpcb_parts.pretty` next to the open board.
+   geometry into `jlcpcb_parts.pretty` next to the open board and
+   returns `pins: [{number, pin_name}]` (EasyEDA function).
 2. `list_parts` names the templates `place_footprint` wants.
+   `get_part_pins` rereads those EasyEDA names for an already downloaded
+   template (`{template}.pins.json`).
 3. `place_footprint` / `place_parts` (max 150, one undo) /
    `place_matrix` (grid: origin = cell 0,0, +x columns, +y rows,
    pitch centre-to-centre).
@@ -144,12 +147,21 @@ sheet corner (0,0) while the API still claims the part is in the middle.
 
 ## 7. Nets
 
-`connect_pins` / `connect_many` set **Pad.net** (ratsnest), not copper.
-Every pad that shares the pin number is assigned (thermal clusters,
-e.g. ESP32 pad 41). Daisy-chain: omit `net`. The net is spliced into
-the parent FootprintInstance — a free-pad UpdateItems is rejected. On
-**KiCad 10** the name persists after save; `get_nets` / `check_board`
-must show it.
+Pin names and functions come from **EasyEDA** (`download_lcsc_part` /
+`get_part_pins`), not from datasheet memory and not from Alladin
+`pad_nets`. `connect_pins` / `connect_many` set **Pad.net** (ratsnest),
+not copper. Every pad that shares the pin number is assigned (thermal
+clusters, e.g. ESP32 pad 41). Daisy-chain: omit `net`. The net is
+spliced into the parent FootprintInstance — a free-pad UpdateItems is
+rejected. On **KiCad 10** the name persists after save; `get_nets` /
+`check_board` must show it.
+
+A manufacturer PDF is allowed only after a **logic check** shows the
+EasyEDA names cannot be right (example: WROOM pad 1 named `IO20` while
+pin 1 is the module GND corner). Then fetch hard facts (`datasheet_url`
+if EasyEDA sent one), name the contradiction, and net from that. 0603
+parts whose EasyEDA names are only `1`/`2` have no polarity — GND vs
+rail from the companion pad.
 
 ## 8. Copper
 
@@ -186,8 +198,9 @@ KiCad `BeginCommit` races.
 | `get_nets` | Read — nets and pads |
 | `get_routing_scene` | Read — tracks/vias + ids |
 | `list_parts` | Read — templates including builtins |
+| `get_part_pins` | Read — EasyEDA `number` + `pin_name` |
 | `check_board` | Read — pads with empty net |
-| `download_lcsc_part` | Write — EasyEDA → library |
+| `download_lcsc_part` | Write — EasyEDA → library + pins |
 | `place_footprint` | Write |
 | `place_parts` | Write — batch |
 | `place_matrix` | Write — grid |

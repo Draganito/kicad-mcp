@@ -6,8 +6,13 @@
 //! KiCad's own EasyEDA importer documents. Coordinates in EasyEDA PCB
 //! space are +x right, +y down; KiCad footprints are +y up, so emit
 //! flips Y (and negates pad rotation) once.
+//!
+//! Pin **numbers** come from the footprint pads. Pin **names/functions**
+//! come from the EasyEDA schematic SVG (`/svgs`). Both are written to
+//! `{template}.pins.json` so MCP can net from EasyEDA without a datasheet.
+//! A manufacturer PDF is only for a logic check that EasyEDA cannot be right.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 use std::path::Path;
 
@@ -77,8 +82,30 @@ pub struct FetchedPart {
     pub description: String,
     pub category: Option<String>,
     pub package: String,
+    pub datasheet_url: Option<String>,
     pub pads: Vec<Pad>,
     pub courtyard: Option<Courtyard>,
+}
+
+/// One EasyEDA pad number and its symbol pin name (the electrical function).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct PinInfo {
+    pub number: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pin_name: Option<String>,
+}
+
+/// EasyEDA pin list persisted next to the `.kicad_mod` as `{template}.pins.json`.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PartPins {
+    pub lcsc_code: String,
+    pub name: String,
+    pub template: String,
+    /// Always `"easyeda"` when written by `download_lcsc_part`.
+    pub source: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub datasheet_url: Option<String>,
+    pub pins: Vec<PinInfo>,
 }
 
 impl FetchedPart {
@@ -91,6 +118,38 @@ impl FetchedPart {
             format!("{}_{pkg}", self.lcsc_code)
         }
     }
+
+    /// Unique pad numbers in footprint order, with EasyEDA `pin_name` when known.
+    pub fn unique_pins(&self) -> Vec<PinInfo> {
+        let mut seen = HashSet::new();
+        let mut pins = Vec::new();
+        for pad in &self.pads {
+            if !seen.insert(pad.number.clone()) {
+                continue;
+            }
+            pins.push(PinInfo {
+                number: pad.number.clone(),
+                pin_name: normalize_pin_name(pad.pin_name.as_deref()),
+            });
+        }
+        pins
+    }
+
+    pub fn part_pins(&self) -> PartPins {
+        PartPins {
+            lcsc_code: self.lcsc_code.clone(),
+            name: self.name.clone(),
+            template: self.footprint_name(),
+            source: "easyeda".into(),
+            datasheet_url: self.datasheet_url.clone(),
+            pins: self.unique_pins(),
+        }
+    }
+}
+
+fn normalize_pin_name(name: Option<&str>) -> Option<String> {
+    let s = name.map(str::trim).filter(|s| !s.is_empty() && *s != "~")?;
+    Some(s.to_string())
 }
 
 pub fn fetch_by_lcsc_code(code: &str) -> Result<FetchedPart, FetchError> {
@@ -200,9 +259,42 @@ pub fn parse_response(code: &str, body: &Value) -> Result<FetchedPart, FetchErro
         description,
         category,
         package,
+        datasheet_url: extract_datasheet_url(result),
         pads,
         courtyard,
     })
+}
+
+fn extract_datasheet_url(result: &Value) -> Option<String> {
+    const KEYS: &[&str] = &["datasheet", "dataManualUrl", "dataManual", "url"];
+    for key in KEYS {
+        if let Some(s) = result
+            .get(*key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| s.starts_with("http"))
+        {
+            return Some(s.to_string());
+        }
+    }
+    let attrs = result
+        .get("attributes")
+        .or_else(|| result.get("szAttr"))
+        .and_then(Value::as_object)?;
+    for (key, value) in attrs {
+        let lower = key.to_ascii_lowercase();
+        if !(lower.contains("datasheet") || lower.contains("manual")) {
+            continue;
+        }
+        if let Some(s) = value
+            .as_str()
+            .map(str::trim)
+            .filter(|s| s.starts_with("http"))
+        {
+            return Some(s.to_string());
+        }
+    }
+    None
 }
 
 fn fetch_pin_names(code: &str) -> HashMap<String, String> {
@@ -705,7 +797,7 @@ fn pin_sort_key(n: &str) -> (u32, String) {
     }
 }
 
-/// Write `{pretty}/{name}.kicad_mod` and merge `{name}` into `{sym_path}`.
+/// Write `{pretty}/{name}.kicad_mod`, `{name}.pins.json`, and merge the symbol.
 pub fn write_library_files(
     part: &FetchedPart,
     pretty_dir: &Path,
@@ -715,8 +807,135 @@ pub fn write_library_files(
     let name = part.footprint_name();
     let mod_path = pretty_dir.join(format!("{name}.kicad_mod"));
     std::fs::write(&mod_path, emit_kicad_mod(part))?;
+    let pins_path = pretty_dir.join(format!("{name}.pins.json"));
+    let pins_json = serde_json::to_string_pretty(&part.part_pins())
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    std::fs::write(&pins_path, pins_json)?;
     merge_symbol_lib(sym_path, part)?;
     Ok(name)
+}
+
+/// Load EasyEDA pin names for a template. Prefers `{template}.pins.json`
+/// written by `download_lcsc_part`; falls back to the `.kicad_sym` names
+/// plus pad numbers from the `.kicad_mod`.
+pub fn load_part_pins(
+    pretty_dir: &Path,
+    sym_path: &Path,
+    template: &str,
+) -> Result<PartPins, String> {
+    let template = template.trim();
+    if template.is_empty() {
+        return Err("template is empty".into());
+    }
+    let pins_path = pretty_dir.join(format!("{template}.pins.json"));
+    if pins_path.is_file() {
+        let text = std::fs::read_to_string(&pins_path).map_err(|e| e.to_string())?;
+        return serde_json::from_str(&text).map_err(|e| format!("{template}.pins.json: {e}"));
+    }
+    let mod_path = pretty_dir.join(format!("{template}.kicad_mod"));
+    if !mod_path.is_file() {
+        return Err(format!(
+            "no template named {template} in jlcpcb_parts — call download_lcsc_part or list_parts first"
+        ));
+    }
+    let mod_text = std::fs::read_to_string(&mod_path).map_err(|e| e.to_string())?;
+    let numbers = pad_numbers_from_mod(&mod_text);
+    if numbers.is_empty() {
+        return Err(format!("{template}.kicad_mod has no pads"));
+    }
+    let names = if sym_path.is_file() {
+        let sym = std::fs::read_to_string(sym_path).map_err(|e| e.to_string())?;
+        parse_symbol_pin_names(&sym, template)
+    } else {
+        HashMap::new()
+    };
+    let pins = numbers
+        .into_iter()
+        .map(|number| {
+            let pin_name = names
+                .get(&number)
+                .cloned()
+                .and_then(|s| normalize_pin_name(Some(&s)));
+            PinInfo { number, pin_name }
+        })
+        .collect();
+    let source = if names.is_empty() {
+        "kicad_mod"
+    } else {
+        "kicad_sym"
+    };
+    Ok(PartPins {
+        lcsc_code: lcsc_code_from_template(template),
+        name: template.to_string(),
+        template: template.to_string(),
+        source: source.into(),
+        datasheet_url: None,
+        pins,
+    })
+}
+
+fn lcsc_code_from_template(template: &str) -> String {
+    template
+        .split_once('_')
+        .map(|(head, _)| head)
+        .filter(|head| head.starts_with('C') && head[1..].chars().all(|c| c.is_ascii_digit()))
+        .unwrap_or("")
+        .to_string()
+}
+
+fn pad_numbers_from_mod(text: &str) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut numbers = Vec::new();
+    let mut rest = text;
+    while let Some(i) = rest.find("(pad \"") {
+        rest = &rest[i + 6..];
+        let Some(end) = rest.find('"') else {
+            break;
+        };
+        let number = rest[..end].to_string();
+        rest = &rest[end + 1..];
+        if seen.insert(number.clone()) {
+            numbers.push(number);
+        }
+    }
+    numbers
+}
+
+fn parse_symbol_pin_names(sym: &str, template: &str) -> HashMap<String, String> {
+    let marker = format!("(symbol \"{template}\"");
+    let Some(start) = sym.find(&marker) else {
+        return HashMap::new();
+    };
+    let rest = &sym[start..];
+    let end = rest[marker.len()..]
+        .find("\n  (symbol ")
+        .map(|i| marker.len() + i)
+        .unwrap_or(rest.len());
+    let body = &rest[..end];
+    let mut names = HashMap::new();
+    for line in body.lines() {
+        if !line.contains("(pin ") {
+            continue;
+        }
+        let Some(name) = extract_sexpr_str(line, "(name ") else {
+            continue;
+        };
+        let Some(number) = extract_sexpr_str(line, "(number ") else {
+            continue;
+        };
+        if let Some(name) = normalize_pin_name(Some(&name)) {
+            names.insert(number, name);
+        }
+    }
+    names
+}
+
+fn extract_sexpr_str(line: &str, marker: &str) -> Option<String> {
+    let i = line.find(marker)? + marker.len();
+    let rest = line[i..].trim_start();
+    let rest = rest.strip_prefix('"')?;
+    let end = rest.find('"')?;
+    Some(rest[..end].to_string())
 }
 
 fn merge_symbol_lib(sym_path: &Path, part: &FetchedPart) -> Result<(), std::io::Error> {
@@ -861,5 +1080,64 @@ mod tests {
         let text = std::fs::read_to_string(&table).unwrap();
         assert_eq!(text.matches("(name \"jlcpcb_parts\")").count(), 1);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn resistor_unique_pins_are_pad_numbers() {
+        let part = parse_response("C25804", &fixture("lcsc_c25804_resistor.json"))
+            .expect("fixture must parse");
+        let pins = part.unique_pins();
+        assert_eq!(pins.len(), 2);
+        let numbers: Vec<_> = pins.iter().map(|p| p.number.as_str()).collect();
+        assert!(numbers.contains(&"1"));
+        assert!(numbers.contains(&"2"));
+        assert!(pins.iter().all(|p| p.pin_name.is_none()));
+        assert!(part.datasheet_url.is_none());
+    }
+
+    #[test]
+    fn writes_and_reloads_pins_json() {
+        let mut part = parse_response("C25804", &fixture("lcsc_c25804_resistor.json"))
+            .expect("fixture must parse");
+        part.pads[0].pin_name = Some("GND".into());
+        part.pads[1].pin_name = Some("3V3".into());
+        let dir = std::env::temp_dir().join(format!("kicad-mcp-pins-{}", std::process::id()));
+        let pretty = dir.join("jlcpcb_parts.pretty");
+        let sym = dir.join("jlcpcb_parts.kicad_sym");
+        let _ = std::fs::remove_dir_all(&dir);
+        let name = write_library_files(&part, &pretty, &sym).unwrap();
+        let loaded = load_part_pins(&pretty, &sym, &name).unwrap();
+        assert_eq!(loaded.source, "easyeda");
+        assert_eq!(loaded.lcsc_code, "C25804");
+        assert_eq!(loaded.pins.len(), 2);
+        let gnd = loaded.pins.iter().find(|p| p.pin_name.as_deref() == Some("GND"));
+        let vcc = loaded.pins.iter().find(|p| p.pin_name.as_deref() == Some("3V3"));
+        assert!(gnd.is_some() && vcc.is_some());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn parse_pin_names_from_symbol_svg() {
+        let svg = r#"<g c_partid="part_pin" c_spicepin="1"><text>GND</text><text>1</text></g>
+<g c_partid="part_pin" c_spicepin="2"><text>VCC</text><text>2</text></g>"#;
+        let body = serde_json::json!({
+            "result": [{ "docType": 2, "svg": svg }]
+        });
+        let names = parse_pin_names(&body);
+        assert_eq!(names.get("1").map(String::as_str), Some("GND"));
+        assert_eq!(names.get("2").map(String::as_str), Some("VCC"));
+    }
+
+    #[test]
+    fn extract_datasheet_from_attributes() {
+        let mut body = fixture("lcsc_c25804_resistor.json");
+        body["result"]["attributes"] = serde_json::json!({
+            "Datasheet": "https://example.com/c25804.pdf"
+        });
+        let part = parse_response("C25804", &body).unwrap();
+        assert_eq!(
+            part.datasheet_url.as_deref(),
+            Some("https://example.com/c25804.pdf")
+        );
     }
 }

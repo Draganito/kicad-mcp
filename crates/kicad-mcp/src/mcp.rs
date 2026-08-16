@@ -83,7 +83,7 @@ impl KicadMcp {
     }
 
     #[tool(
-        description = "Footprint templates in this project's jlcpcb_parts.pretty — exact names place_footprint wants, plus F.CrtYd size. Also writes builtin WirePad_PTH and MountingHole_M3_NPTH if missing (not LCSC)."
+        description = "Footprint templates in this project's jlcpcb_parts.pretty — exact names place_footprint wants, plus F.CrtYd size. has_easyeda_pins true means get_part_pins has EasyEDA pin_name/function. Also writes builtin WirePad_PTH and MountingHole_M3_NPTH if missing (not LCSC)."
     )]
     async fn list_parts(&self) -> Result<CallToolResult, McpError> {
         with_kicad(self, |k| async move {
@@ -109,6 +109,7 @@ impl KicadMcp {
                     "courtyard_w_mm": (cw * 1000.0).round() / 1000.0,
                     "courtyard_h_mm": (ch * 1000.0).round() / 1000.0,
                     "pad_count": loaded.map(|t| t.pads.len()).unwrap_or(0),
+                    "has_easyeda_pins": pretty.join(format!("{name}.pins.json")).is_file(),
                 }));
             }
             Ok(serde_json::json!({ "library": "jlcpcb_parts", "templates": templates }))
@@ -147,7 +148,28 @@ impl KicadMcp {
     }
 
     #[tool(
-        description = "Download LCSC C-number from EasyEDA and write a native KiCad footprint + symbol into the open project's jlcpcb_parts library. Returns the template name place_footprint wants."
+        description = "EasyEDA pin numbers and pin_name (electrical function) for a downloaded template. Source of truth for connect_many nets. Do not use a manufacturer datasheet unless a logic check shows the EasyEDA names cannot be right. Call after download_lcsc_part, or for an existing list_parts template. Builtins have pad numbers only."
+    )]
+    async fn get_part_pins(
+        &self,
+        Parameters(args): Parameters<GetPartPinsArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        with_kicad(self, move |k| async move {
+            let dir = k.project_dir().await?;
+            let pretty = crate::kicad::jlc_pretty_dir(&dir);
+            let _ = crate::builtins::ensure_builtin_footprints(&pretty)?;
+            let pins = easyeda_kicad::load_part_pins(
+                &pretty,
+                &crate::kicad::jlc_sym_path(&dir),
+                &args.template,
+            )?;
+            serde_json::to_value(&pins).map_err(|e| e.to_string())
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Download LCSC C-number from EasyEDA and write a native KiCad footprint + symbol + pins.json into the open project's jlcpcb_parts library. Returns template (for place_footprint) and pins: [{number, pin_name}]. pin_name is the EasyEDA function — use it for nets. Datasheet only if a logic check proves EasyEDA cannot be right."
     )]
     async fn download_lcsc_part(
         &self,
@@ -166,6 +188,7 @@ impl KicadMcp {
             easyeda_kicad::ensure_sym_lib_table(&dir.join("sym-lib-table")).map_err(|e| e.to_string())?;
             let name = easyeda_kicad::write_library_files(&part, &crate::kicad::jlc_pretty_dir(&dir), &crate::kicad::jlc_sym_path(&dir))
                 .map_err(|e| e.to_string())?;
+            let pins = part.part_pins();
             Ok(serde_json::json!({
                 "ok": true,
                 "lcsc_code": part.lcsc_code,
@@ -173,8 +196,11 @@ impl KicadMcp {
                 "template": name,
                 "reference_prefix": part.reference_prefix,
                 "pad_count": part.pads.len(),
+                "datasheet_url": part.datasheet_url,
+                "pins": pins.pins,
+                "source": "easyeda",
                 "library": "jlcpcb_parts",
-                "note": "KiCad may need a library refresh (close/reopen the footprint chooser) before the new part appears in the GUI picker. place_footprint pastes it directly.",
+                "note": "pins[].pin_name is the EasyEDA function. Use it for connect_many. Manufacturer datasheet only after a logic check that EasyEDA cannot be right. KiCad may need a library refresh before the part appears in the GUI picker. place_footprint pastes it directly.",
             }))
         })
         .await
@@ -1155,6 +1181,12 @@ pub struct LcscArgs {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GetPartPinsArgs {
+    /// Template from `list_parts` / `download_lcsc_part`, e.g. `C25804_R0603`.
+    pub template: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct PlaceArgs {
     pub template: String,
     pub x_mm: f64,
@@ -1348,6 +1380,9 @@ impl ServerHandler for KicadMcp {
              Coordinates are KiCad native millimetres (origin = board origin, +x right, +y up). \
              LCSC parts come from EasyEDA so JLCPCB footprints match. WirePad_PTH and MountingHole_M3_NPTH \
              are builtins (list_parts writes them). \
+             Pin names and functions come from EasyEDA (`download_lcsc_part` returns pins; `get_part_pins` \
+             for already downloaded templates). Use those pin_name values for connect_many. \
+             Manufacturer datasheets only after a logic check that EasyEDA cannot be right. \
              Start with board_summary. Prefer download_lcsc_part then place_matrix/place_parts for grids. \
              The pink A4 frame is the drawing sheet, not the PCB. Board size is an Edge.Cuts rectangle \
              (set_board_outline); default origin is the sheet centre, not 0,0. Outline replace defaults to true. \
