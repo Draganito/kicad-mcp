@@ -33,8 +33,11 @@ der Editor; dieses Programm ist kein zweiter Layout-Editor.
 `autoroute_nets` kann die Companion-CLI für genannte Netze starten.
 
 Footprints für JLCPCB kommen von **EasyEDA / LCSC**
-(`download_lcsc_part`). Builtin-Teile: `WirePad_PTH`,
-`MountingHole_M3_NPTH`.
+(`download_lcsc_part`). Drahtpads und Montagelöcher werden parametrisch
+erzeugt: `list_parts` schreibt die Defaults (`WirePad_PTH` 2,5/1,5 mm,
+`MountingHole_M3_NPTH` 3,2 mm); `make_wire_pad` / `make_mounting_hole`
+erzeugen jede andere Größe (z. B. `WirePad_PTH_3.2_2`,
+`MountingHole_4.5_NPTH`).
 
 Lizenz: AGPL-3.0-only. KiCad selbst ist ein separates GPL-3.0-Programm
 und liegt nicht in diesem Paket.
@@ -208,6 +211,8 @@ Keine parallelen Copper-Writes: KiCad `BeginCommit` verträgt das nicht.
 | `get_part_pins` | Lesen — EasyEDA `number` + `pin_name` |
 | `check_board` | Lesen — Pads ohne Netz |
 | `download_lcsc_part` | Schreiben — EasyEDA → Library + Pins |
+| `make_wire_pad` | Schreiben — parametrisches PTH-Drahtpad-Template |
+| `make_mounting_hole` | Schreiben — parametrisches NPTH-Loch-Template |
 | `place_footprint` | Schreiben |
 | `place_parts` | Schreiben — Batch |
 | `place_matrix` | Schreiben — Raster |
@@ -243,8 +248,8 @@ nach `out_dir`:
 | `<name>_bom.csv` | BOM (Comment, Designator, Footprint, LCSC Part #) |
 | `<name>_cpl.csv` | CPL / Centroid (Designator, Mid X, Mid Y, Layer, Rotation) |
 
-Builtin-Drahtpads und M3-Löcher stehen nicht in BOM/CPL. Braucht
-`kicad-cli` (Paket `kicad`).
+Generierte Drahtpads und Montagelöcher (jede Größe) stehen nicht in
+BOM/CPL. Braucht `kicad-cli` (Paket `kicad`).
 
 ## 11. Debian-Paket bauen
 

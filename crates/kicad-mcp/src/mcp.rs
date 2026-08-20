@@ -83,7 +83,7 @@ impl KicadMcp {
     }
 
     #[tool(
-        description = "Footprint templates in this project's jlcpcb_parts.pretty — exact names place_footprint wants, plus F.CrtYd size. has_easyeda_pins true means get_part_pins has EasyEDA pin_name/function. Also writes builtin WirePad_PTH and MountingHole_M3_NPTH if missing (not LCSC)."
+        description = "Footprint templates in this project's jlcpcb_parts.pretty — exact names place_footprint wants, plus F.CrtYd size. has_easyeda_pins true means get_part_pins has EasyEDA pin_name/function. Also writes the default WirePad_PTH and MountingHole_M3_NPTH if missing; other sizes come from make_wire_pad / make_mounting_hole."
     )]
     async fn list_parts(&self) -> Result<CallToolResult, McpError> {
         with_kicad(self, |k| async move {
@@ -203,6 +203,68 @@ impl KicadMcp {
                 "source": "easyeda",
                 "library": "jlcpcb_parts",
                 "note": "pins[].pin_name is the EasyEDA function. Use it for connect_many. Manufacturer datasheet only after a logic check that EasyEDA cannot be right. KiCad may need a library refresh before the part appears in the GUI picker. place_footprint pastes it directly.",
+            }))
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Generate a PTH wire pad template with any copper/drill diameter (mm) and write it into jlcpcb_parts.pretty. Returns the template name for place_footprint (default 2.5/1.5 keeps the name WirePad_PTH, e.g. 3.2/2.0 becomes WirePad_PTH_3.2_2). Regenerating an existing size overwrites the file. Enforces JLCPCB drill limits and 0.25 mm annular ring."
+    )]
+    async fn make_wire_pad(
+        &self,
+        Parameters(args): Parameters<MakeWirePadArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        if let Some(refusal) = self.require_write() {
+            return refusal;
+        }
+        with_kicad(self, move |k| async move {
+            let dir = k.project_dir().await?;
+            let pretty = crate::kicad::jlc_pretty_dir(&dir);
+            easyeda_kicad::ensure_fp_lib_table(&dir.join("fp-lib-table"))
+                .map_err(|e| e.to_string())?;
+            let pad_mm = args.pad_mm.unwrap_or(crate::builtins::WIRE_PAD_DEFAULT_PAD_MM);
+            let drill_mm = args
+                .drill_mm
+                .unwrap_or(crate::builtins::WIRE_PAD_DEFAULT_DRILL_MM);
+            let template = crate::builtins::make_wire_pad(&pretty, pad_mm, drill_mm)?;
+            Ok(serde_json::json!({
+                "ok": true,
+                "template": template,
+                "pad_mm": pad_mm,
+                "drill_mm": drill_mm,
+                "library": "jlcpcb_parts",
+                "note": "Use the template name with place_footprint. Already placed footprints keep their old geometry — remove and place again to pick up a new size.",
+            }))
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Generate an NPTH mounting hole template with any hole diameter (mm) and write it into jlcpcb_parts.pretty. Returns the template name for place_footprint (3.2 keeps the name MountingHole_M3_NPTH, e.g. 4.5 becomes MountingHole_4.5_NPTH). Courtyard is 2x the hole. Regenerating an existing size overwrites the file."
+    )]
+    async fn make_mounting_hole(
+        &self,
+        Parameters(args): Parameters<MakeMountingHoleArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        if let Some(refusal) = self.require_write() {
+            return refusal;
+        }
+        with_kicad(self, move |k| async move {
+            let dir = k.project_dir().await?;
+            let pretty = crate::kicad::jlc_pretty_dir(&dir);
+            easyeda_kicad::ensure_fp_lib_table(&dir.join("fp-lib-table"))
+                .map_err(|e| e.to_string())?;
+            let hole_mm = args
+                .hole_mm
+                .unwrap_or(crate::builtins::MOUNTING_HOLE_DEFAULT_MM);
+            let template = crate::builtins::make_mounting_hole(&pretty, hole_mm)?;
+            Ok(serde_json::json!({
+                "ok": true,
+                "template": template,
+                "hole_mm": hole_mm,
+                "library": "jlcpcb_parts",
+                "note": "Use the template name with place_footprint. Already placed footprints keep their old geometry — remove and place again to pick up a new size.",
             }))
         })
         .await
@@ -1220,6 +1282,20 @@ pub struct LcscArgs {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct MakeWirePadArgs {
+    /// Copper pad diameter in mm (default 2.5). Must leave a 0.25 mm annular ring around the drill.
+    pub pad_mm: Option<f64>,
+    /// Drill diameter in mm (default 1.5). JLCPCB range 0.3–6.3 mm.
+    pub drill_mm: Option<f64>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct MakeMountingHoleArgs {
+    /// NPTH hole diameter in mm (default 3.2 = M3 clearance). JLCPCB range 0.3–6.3 mm.
+    pub hole_mm: Option<f64>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct GetPartPinsArgs {
     /// Template from `list_parts` / `download_lcsc_part`, e.g. `C25804_R0603`.
     pub template: String,
@@ -1455,7 +1531,7 @@ async fn commit_disconnect(
 impl ServerHandler for KicadMcp {
     fn get_info(&self) -> ServerInfo {
         let write_note = if self.allow_ai_write {
-            "Write tools are ENABLED (--allow-ai-write): download_lcsc_part, place_footprint, place_parts, place_matrix, remove_footprint, clear_board, clear_zones, set_board_outline, connect_pins, connect_many, disconnect_pin, disconnect_many, add_track, add_tracks, add_via, add_vias, stitch_via, set_copper_zone, autoroute_nets, ripup_wire, check_drc, save_board, export_manufacturing."
+            "Write tools are ENABLED (--allow-ai-write): download_lcsc_part, make_wire_pad, make_mounting_hole, place_footprint, place_parts, place_matrix, remove_footprint, clear_board, clear_zones, set_board_outline, connect_pins, connect_many, disconnect_pin, disconnect_many, add_track, add_tracks, add_via, add_vias, stitch_via, set_copper_zone, autoroute_nets, ripup_wire, check_drc, save_board, export_manufacturing."
         } else {
             "Write tools are DISABLED. Relaunch with --allow-ai-write."
         };
@@ -1465,8 +1541,9 @@ impl ServerHandler for KicadMcp {
              Start KiCad 10 via ~/Programme/kicad-10.sh (not the AppImage, not system KiCad 9). \
              KiCad must be open with Preferences → Plugins → Enable IPC API. \
              Coordinates are KiCad native millimetres (origin = board origin, +x right, +y up). \
-             LCSC parts come from EasyEDA so JLCPCB footprints match. WirePad_PTH and MountingHole_M3_NPTH \
-             are builtins (list_parts writes them). \
+             LCSC parts come from EasyEDA so JLCPCB footprints match. Wire pads and mounting holes are \
+             generated parametrically: list_parts writes the defaults (WirePad_PTH 2.5/1.5 mm, \
+             MountingHole_M3_NPTH 3.2 mm); make_wire_pad / make_mounting_hole write any other size. \
              Pin names and functions come from EasyEDA (`download_lcsc_part` returns pins; `get_part_pins` \
              for already downloaded templates). Use those pin_name values for connect_many. \
              Manufacturer datasheets only after a logic check that EasyEDA cannot be right. \

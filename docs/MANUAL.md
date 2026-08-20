@@ -33,7 +33,10 @@ this is not a second layout program. `autoroute_nets` can run the
 companion CLI for named nets.
 
 JLCPCB footprints come from **EasyEDA / LCSC** (`download_lcsc_part`).
-Builtins: `WirePad_PTH`, `MountingHole_M3_NPTH`.
+Wire pads and mounting holes are generated parametrically:
+`list_parts` writes the defaults (`WirePad_PTH` 2.5/1.5 mm,
+`MountingHole_M3_NPTH` 3.2 mm); `make_wire_pad` / `make_mounting_hole`
+write any other size (e.g. `WirePad_PTH_3.2_2`, `MountingHole_4.5_NPTH`).
 
 License: AGPL-3.0-only. KiCad itself is a separate GPL-3.0 program and
 is not shipped in this package.
@@ -203,6 +206,8 @@ KiCad `BeginCommit` races.
 | `get_part_pins` | Read — EasyEDA `number` + `pin_name` |
 | `check_board` | Read — pads with empty net |
 | `download_lcsc_part` | Write — EasyEDA → library + pins |
+| `make_wire_pad` | Write — parametric PTH wire pad template |
+| `make_mounting_hole` | Write — parametric NPTH hole template |
 | `place_footprint` | Write |
 | `place_parts` | Write — batch |
 | `place_matrix` | Write — grid |
@@ -237,8 +242,8 @@ three JLCPCB files into the project folder (or `out_dir`):
 | `<name>_bom.csv` | BOM (Comment, Designator, Footprint, LCSC Part #) |
 | `<name>_cpl.csv` | CPL / centroid (Designator, Mid X, Mid Y, Layer, Rotation) |
 
-Builtin wire pads and M3 holes are omitted from BOM/CPL. Needs
-`kicad-cli` (the `kicad` package).
+Generated wire pads and mounting holes (any size) are omitted from
+BOM/CPL. Needs `kicad-cli` (the `kicad` package).
 
 ## 11. Building the Debian package
 
