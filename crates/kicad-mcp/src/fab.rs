@@ -251,6 +251,123 @@ pub fn run_pcb_drc(board_file: &Path) -> Result<DrcReport, String> {
     parse_drc_json(&text)
 }
 
+pub const RENDER_SIDES: &[&str] = &["top", "bottom", "left", "right", "front", "back"];
+
+#[derive(Debug, Clone)]
+pub struct RenderOpts {
+    pub side: String,
+    pub width: u32,
+    pub height: u32,
+    pub zoom: f64,
+    /// Board rotation in degrees, e.g. (-45, 0, 45) for an isometric view.
+    pub rotate: Option<(f64, f64, f64)>,
+    pub perspective: bool,
+    pub floor: bool,
+}
+
+impl Default for RenderOpts {
+    fn default() -> Self {
+        Self {
+            side: "top".into(),
+            width: 1600,
+            height: 1600,
+            zoom: 1.0,
+            rotate: None,
+            perspective: false,
+            floor: false,
+        }
+    }
+}
+
+/// Raytrace the board on disk to a PNG via `kicad-cli pcb render`.
+/// The caller saves the board first (same contract as `run_pcb_drc`).
+pub fn render_board_png(
+    board_file: &Path,
+    out_file: Option<PathBuf>,
+    opts: &RenderOpts,
+) -> Result<PathBuf, String> {
+    if !board_file.is_file() {
+        return Err(format!(
+            "board file not on disk: {} — save the board in KiCad first",
+            board_file.display()
+        ));
+    }
+    if !RENDER_SIDES.contains(&opts.side.as_str()) {
+        return Err(format!(
+            "side must be one of {} (got {})",
+            RENDER_SIDES.join("/"),
+            opts.side
+        ));
+    }
+    if !(64..=4096).contains(&opts.width) || !(64..=4096).contains(&opts.height) {
+        return Err("width/height must be between 64 and 4096 pixels".into());
+    }
+    if !(0.05..=20.0).contains(&opts.zoom) {
+        return Err("zoom must be between 0.05 and 20".into());
+    }
+    let out = match out_file {
+        Some(p) => p,
+        None => {
+            let stem = board_file
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .ok_or("board file has no name")?;
+            board_file
+                .parent()
+                .unwrap_or_else(|| Path::new("."))
+                .join(format!("{stem}_render_{}.png", opts.side))
+        }
+    };
+    let args = render_cli_args(board_file, &out, opts)?;
+    let arg_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+    run_kicad_cli(&arg_refs)?;
+    let size = fs::metadata(&out).map(|m| m.len()).unwrap_or(0);
+    if size == 0 {
+        return Err(format!(
+            "kicad-cli pcb render wrote no image at {}",
+            out.display()
+        ));
+    }
+    Ok(out)
+}
+
+fn render_cli_args(
+    board_file: &Path,
+    out: &Path,
+    opts: &RenderOpts,
+) -> Result<Vec<String>, String> {
+    let mut args: Vec<String> = vec![
+        "pcb".into(),
+        "render".into(),
+        "--output".into(),
+        out.to_str().ok_or("output path is not UTF-8")?.into(),
+        "--side".into(),
+        opts.side.clone(),
+        "--background".into(),
+        "opaque".into(),
+        "--quality".into(),
+        "high".into(),
+        "--width".into(),
+        opts.width.to_string(),
+        "--height".into(),
+        opts.height.to_string(),
+        "--zoom".into(),
+        opts.zoom.to_string(),
+    ];
+    if let Some((rx, ry, rz)) = opts.rotate {
+        args.push("--rotate".into());
+        args.push(format!("{rx},{ry},{rz}"));
+    }
+    if opts.perspective {
+        args.push("--perspective".into());
+    }
+    if opts.floor {
+        args.push("--floor".into());
+    }
+    args.push(board_file.to_str().ok_or("board path is not UTF-8")?.into());
+    Ok(args)
+}
+
 fn parse_drc_json(text: &str) -> Result<DrcReport, String> {
     let v: serde_json::Value =
         serde_json::from_str(text).map_err(|e| format!("drc json parse: {e}"))?;
@@ -609,6 +726,45 @@ H1,MountingHole_M3_NPTH,MountingHole_M3_NPTH,1,2,0,top
         assert!(cpl.contains("C1,10.5,-20.25,Top,90.0"));
         assert!(cpl.contains("D1,0,0,Bottom,0"));
         assert!(!cpl.contains("H1"));
+    }
+
+    #[test]
+    fn render_args_default_and_iso() {
+        let board = Path::new("/tmp/x/board.kicad_pcb");
+        let out = Path::new("/tmp/x/board_render_top.png");
+        let args = render_cli_args(board, out, &RenderOpts::default()).unwrap();
+        assert_eq!(args[0], "pcb");
+        assert_eq!(args[1], "render");
+        assert!(args.contains(&"--side".to_string()));
+        assert!(args.contains(&"top".to_string()));
+        assert!(!args.iter().any(|a| a == "--rotate"));
+        assert_eq!(args.last().unwrap(), "/tmp/x/board.kicad_pcb");
+
+        let iso = RenderOpts {
+            rotate: Some((-45.0, 0.0, 45.0)),
+            perspective: true,
+            ..RenderOpts::default()
+        };
+        let args = render_cli_args(board, out, &iso).unwrap();
+        let i = args.iter().position(|a| a == "--rotate").unwrap();
+        assert_eq!(args[i + 1], "-45,0,45");
+        assert!(args.iter().any(|a| a == "--perspective"));
+    }
+
+    #[test]
+    fn render_rejects_bad_side_and_size() {
+        let board = Path::new("/nonexistent/board.kicad_pcb");
+        let err = render_board_png(board, None, &RenderOpts::default()).unwrap_err();
+        assert!(err.contains("not on disk"));
+        let mut opts = RenderOpts::default();
+        opts.side = "iso".into();
+        // Side/size validation happens before the file check would pass anyway;
+        // use a file that exists to reach it.
+        let this_file = Path::new(file!());
+        if this_file.is_file() {
+            let err = render_board_png(this_file, None, &opts).unwrap_err();
+            assert!(err.contains("side must be one of"));
+        }
     }
 
     #[test]

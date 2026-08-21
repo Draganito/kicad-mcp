@@ -333,6 +333,15 @@ pub struct LoadedTemplate {
     pub courtyard: Aabb,
 }
 
+/// F.CrtYd box of a template on disk; falls back to the pad AABB.
+/// None if the template file is missing or unreadable.
+pub fn courtyard_of_template(pretty_dir: &std::path::Path, template: &str) -> Option<Aabb> {
+    let path = pretty_dir.join(format!("{template}.kicad_mod"));
+    let text = std::fs::read_to_string(path).ok()?;
+    parse_kicad_mod_courtyard(&text)
+        .or_else(|| parse_kicad_mod_pads(&text).ok().map(|p| pads_aabb(&p)))
+}
+
 pub fn load_template(
     pretty_dir: &std::path::Path,
     template: &str,

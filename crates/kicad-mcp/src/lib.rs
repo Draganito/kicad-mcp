@@ -18,6 +18,7 @@ pub mod kicad;
 pub mod mcp;
 pub mod nets;
 pub mod outline;
+pub mod pads;
 pub mod place;
 pub mod proto_wire;
 pub mod stitch;

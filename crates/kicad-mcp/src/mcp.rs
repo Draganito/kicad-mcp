@@ -71,6 +71,25 @@ impl KicadMcp {
     }
 
     #[tool(
+        description = "Every pad as hard data straight from KiCad's baked protos: reference, pin, net, absolute x_mm/y_mm, size, rotation, smd/pth/npth, shape, layer, drill. Optional reference and/or net filter. Use this to verify placement and orientation against reality (a mirrored or mis-rotated part shows pads on the wrong side of the anchor) — never guess from templates or renders."
+    )]
+    async fn get_pads(
+        &self,
+        Parameters(args): Parameters<GetPadsArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        with_kicad(self, move |k| async move {
+            let reference = args.reference.as_deref().map(str::trim).filter(|s| !s.is_empty());
+            let net = args.net.as_deref().map(str::trim).filter(|s| !s.is_empty());
+            let pads = crate::pads::board_pads(&k, reference, net).await?;
+            Ok(serde_json::json!({
+                "pad_count": pads.len(),
+                "pads": pads,
+            }))
+        })
+        .await
+    }
+
+    #[tool(
         description = "Tracks and vias currently on the board (id, net, layer, endpoints in mm). Use track/via id with ripup_wire."
     )]
     async fn get_routing_scene(&self) -> Result<CallToolResult, McpError> {
@@ -344,6 +363,23 @@ impl KicadMcp {
                 })
                 .collect();
             place_many(&k, parts).await
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Move and/or rotate one placed footprint by reference to x_mm/y_mm (KiCad native millimetres), optional rotation_deg (omit = keep current). Rigid transform of the anchor and every baked pad in one UpdateItems — nets, reference and padstack geometry survive (better than remove+place). Refuses courtyard overlap at the target. Copper does NOT move: re-route tracks that reached this part. Ctrl+Z undoes."
+    )]
+    async fn move_footprint(
+        &self,
+        Parameters(args): Parameters<MoveFootprintArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        if let Some(refusal) = self.require_write() {
+            return refusal;
+        }
+        with_kicad(self, move |k| async move {
+            crate::pads::move_footprint(&k, &args.reference, args.x_mm, args.y_mm, args.rotation_deg)
+                .await
         })
         .await
     }
@@ -1006,6 +1042,63 @@ impl KicadMcp {
         .await
     }
 
+    #[tool(
+        description = "Raytrace the board to a PNG via kicad-cli pcb render (refills zones and saves the open board first, like check_drc). side: top|bottom|left|right|front|back (default top). Optional zoom, rotate [x,y,z] degrees (e.g. [-45,0,45] + perspective for an isometric view), floor, width/height px (default 1600). Writes <stem>_render_<side>.png next to the board (or output path). Read the returned PNG to inspect copper, silkscreen, mask and holes. EasyEDA parts carry no 3D bodies — package orientation still needs get_pads or an external render."
+    )]
+    async fn render_board(
+        &self,
+        Parameters(args): Parameters<RenderBoardArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        if let Some(refusal) = self.require_write() {
+            return refusal;
+        }
+        with_kicad(self, move |k| async move {
+            let _ = k.refill_all_zones().await;
+            k.save().await?;
+            let board = k.board_file_path().await?;
+            let mut opts = crate::fab::RenderOpts::default();
+            if let Some(side) = args.side.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+                opts.side = side.to_ascii_lowercase();
+            }
+            if let Some(z) = args.zoom {
+                opts.zoom = z;
+            }
+            if let Some(w) = args.width {
+                opts.width = w;
+            }
+            if let Some(h) = args.height {
+                opts.height = h;
+            }
+            if let Some(rot) = &args.rotate {
+                if rot.len() != 3 {
+                    return Err("rotate needs exactly [x, y, z] degrees".into());
+                }
+                opts.rotate = Some((rot[0], rot[1], rot[2]));
+            }
+            opts.perspective = args.perspective.unwrap_or(false);
+            opts.floor = args.floor.unwrap_or(false);
+            let out_file = args
+                .output
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(std::path::PathBuf::from);
+            let side = opts.side.clone();
+            let png = tokio::task::spawn_blocking(move || {
+                crate::fab::render_board_png(&board, out_file, &opts)
+            })
+            .await
+            .map_err(|e| e.to_string())??;
+            Ok(serde_json::json!({
+                "ok": true,
+                "png": png,
+                "side": side,
+                "note": "Read the PNG to inspect it. Copper, silk, mask and holes are real; EasyEDA footprints have no 3D bodies, so packages are invisible — verify orientation with get_pads.",
+            }))
+        })
+        .await
+    }
+
     #[tool(description = "Save the open board to its current path.")]
     async fn save_board(&self) -> Result<CallToolResult, McpError> {
         if let Some(refusal) = self.require_write() {
@@ -1242,18 +1335,7 @@ fn outline_origin_for_sheet(width_mm: f64, height_mm: f64) -> (f64, f64) {
     )
 }
 
-fn courtyard_of_template(
-    pretty_dir: &std::path::Path,
-    template: &str,
-) -> Option<crate::place::Aabb> {
-    let path = pretty_dir.join(format!("{template}.kicad_mod"));
-    let text = std::fs::read_to_string(path).ok()?;
-    crate::place::parse_kicad_mod_courtyard(&text).or_else(|| {
-        crate::place::parse_kicad_mod_pads(&text)
-            .ok()
-            .map(|p| crate::place::pads_aabb(&p))
-    })
-}
+use crate::place::courtyard_of_template;
 
 #[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
 pub struct ExportManufacturingArgs {
@@ -1340,6 +1422,44 @@ pub struct PlaceMatrixArgs {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct RefArgs {
     pub reference: String,
+}
+
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+pub struct GetPadsArgs {
+    /// Only pads of this footprint, e.g. `"U6"`.
+    pub reference: Option<String>,
+    /// Only pads on this net, e.g. `"GND"`.
+    pub net: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct MoveFootprintArgs {
+    /// Footprint reference, e.g. `"U14"`.
+    pub reference: String,
+    pub x_mm: f64,
+    pub y_mm: f64,
+    /// New absolute rotation in degrees (KiCad counterclockwise). Omit to keep.
+    pub rotation_deg: Option<f64>,
+}
+
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+pub struct RenderBoardArgs {
+    /// top | bottom | left | right | front | back. Default top.
+    pub side: Option<String>,
+    /// Camera zoom, default 1.0.
+    pub zoom: Option<f64>,
+    /// Board rotation `[x, y, z]` in degrees, e.g. `[-45, 0, 45]` for isometric.
+    pub rotate: Option<Vec<f64>>,
+    /// Perspective projection instead of orthogonal.
+    pub perspective: Option<bool>,
+    /// Floor, shadows and post-processing.
+    pub floor: Option<bool>,
+    /// Image width in px (64–4096, default 1600).
+    pub width: Option<u32>,
+    /// Image height in px (64–4096, default 1600).
+    pub height: Option<u32>,
+    /// Output PNG path. Default: `<stem>_render_<side>.png` next to the board.
+    pub output: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -1531,7 +1651,7 @@ async fn commit_disconnect(
 impl ServerHandler for KicadMcp {
     fn get_info(&self) -> ServerInfo {
         let write_note = if self.allow_ai_write {
-            "Write tools are ENABLED (--allow-ai-write): download_lcsc_part, make_wire_pad, make_mounting_hole, place_footprint, place_parts, place_matrix, remove_footprint, clear_board, clear_zones, set_board_outline, connect_pins, connect_many, disconnect_pin, disconnect_many, add_track, add_tracks, add_via, add_vias, stitch_via, set_copper_zone, autoroute_nets, ripup_wire, check_drc, save_board, export_manufacturing."
+            "Write tools are ENABLED (--allow-ai-write): download_lcsc_part, make_wire_pad, make_mounting_hole, place_footprint, place_parts, place_matrix, move_footprint, remove_footprint, clear_board, clear_zones, set_board_outline, connect_pins, connect_many, disconnect_pin, disconnect_many, add_track, add_tracks, add_via, add_vias, stitch_via, set_copper_zone, autoroute_nets, ripup_wire, check_drc, render_board, save_board, export_manufacturing."
         } else {
             "Write tools are DISABLED. Relaunch with --allow-ai-write."
         };
@@ -1555,7 +1675,10 @@ impl ServerHandler for KicadMcp {
              (assigns every pad that shares a pin number, e.g. thermal pad 41), \
              disconnect_pin to put a pad back on unconnected after a mis-wire, \
              autoroute_nets for named signal nets (not GND), set_copper_zone for 5V/GND. \
-             No move_footprint (remove then place). Copper: get_routing_scene then ripup_wire with segment_id. \
+             move_footprint relocates/rotates a placed part (rigid transform, nets stay, copper does not move). \
+             get_pads reports every pad with absolute position, rotation and net — verify placement with it \
+             instead of guessing. render_board writes a PNG (kicad-cli pcb render) for visual checks \
+             (no 3D bodies on EasyEDA parts). Copper: get_routing_scene then ripup_wire with segment_id. \
              autoroute_nets calls the Routing Tools CLI, reloads, and refills zones (no Ctrl+Z for that step). \
              After copper, check_drc (kicad-cli) then check_board. \
              Do not edit .kicad_pcb by hand. \

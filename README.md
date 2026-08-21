@@ -94,15 +94,17 @@ Without `--allow-ai-write`, every write tool refuses.
 
 ## Tools
 
-Read: `board_summary`, `get_footprints`, `get_nets`, `get_routing_scene`,
-`list_parts`, `get_part_pins`, `check_board`.
+Read: `board_summary`, `get_footprints`, `get_nets`, `get_pads`,
+`get_routing_scene`, `list_parts`, `get_part_pins`, `check_board`.
 
-Write: `download_lcsc_part`, `place_footprint`, `place_parts`,
-`place_matrix`, `remove_footprint`, `clear_board`, `set_board_outline`,
+Write: `download_lcsc_part`, `make_wire_pad`, `make_mounting_hole`,
+`place_footprint`, `place_parts`, `place_matrix`, `move_footprint`,
+`remove_footprint`, `clear_board`, `clear_zones`, `set_board_outline`,
 `connect_pins`, `connect_many`, `disconnect_pin`, `disconnect_many`,
 `add_track`, `add_tracks`, `add_via`,
 `add_vias`, `stitch_via`, `set_copper_zone`, `autoroute_nets`,
-`ripup_wire` (by `segment_id`), `save_board`, `export_manufacturing`.
+`ripup_wire` (by `segment_id`), `check_drc`, `render_board`,
+`save_board`, `export_manufacturing`.
 
 Coordinates are **KiCad native millimetres** (board origin, +x right,
 +y up). Start with `board_summary`.

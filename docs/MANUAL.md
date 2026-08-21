@@ -140,9 +140,20 @@ edit them by hand.
    `place_matrix` (grid: origin = cell 0,0, +x columns, +y rows,
    pitch centre-to-centre).
 
-Placement checks F.CrtYd overlap between footprints. There is no
-`move_footprint`: remove then place. Do not substitute a generic KiCad
-library footprint for an LCSC C-number.
+Placement checks F.CrtYd overlap between footprints. `move_footprint`
+relocates and/or rotates a placed part in one undo: a rigid transform
+of the anchor and every baked pad, so nets, reference and padstack
+geometry survive (no remove+place). The target is courtyard-checked.
+Copper does **not** move — re-route tracks that reached the part.
+Do not substitute a generic KiCad library footprint for an LCSC
+C-number.
+
+`get_pads` reports every pad as hard data straight from KiCad's baked
+protos: reference, pin, net, absolute x/y, size, rotation, smd/pth/npth,
+shape, layer, drill; filter by `reference` and/or `net`. Use it to
+verify placement and orientation (a mirrored or mis-rotated part shows
+pads on the wrong side of the anchor) instead of guessing from
+templates or renders.
 
 Nested pads are not parent-transformed. `place.rs` bakes board
 millimetres into every pad. Without that bake, copper piles up at the
@@ -201,6 +212,7 @@ KiCad `BeginCommit` races.
 | `board_summary` | Read — version, counts |
 | `get_footprints` | Read — ref, position, rotation |
 | `get_nets` | Read — nets and pads |
+| `get_pads` | Read — baked pad truth (position, net, rotation) |
 | `get_routing_scene` | Read — tracks/vias + ids |
 | `list_parts` | Read — templates including builtins |
 | `get_part_pins` | Read — EasyEDA `number` + `pin_name` |
@@ -211,6 +223,7 @@ KiCad `BeginCommit` races.
 | `place_footprint` | Write |
 | `place_parts` | Write — batch |
 | `place_matrix` | Write — grid |
+| `move_footprint` | Write — rigid move/rotate, nets stay, copper stays |
 | `remove_footprint` | Write |
 | `clear_board` | Write — parts + copper, outline stays |
 | `clear_zones` | Write — zones only |
@@ -224,8 +237,16 @@ KiCad `BeginCommit` races.
 | `autoroute_nets` | Write — CLI autorouter, named nets |
 | `ripup_wire` | Write |
 | `check_drc` | Write — `kicad-cli` DRC (saves) |
+| `render_board` | Write — 3D PNG via `kicad-cli pcb render` (saves) |
 | `save_board` | Write — only when asked |
 | `export_manufacturing` | Write — JLCPCB: `*_gerbers.zip` + `*_bom.csv` + `*_cpl.csv` (`kicad-cli`) |
+
+`render_board` refills zones, saves, and raytraces the board to
+`<stem>_render_<side>.png` via `kicad-cli pcb render` (side
+top/bottom/left/right/front/back; optional `zoom`, `rotate [x,y,z]`,
+`perspective`, `floor`, `width`/`height`). Copper, silkscreen, mask and
+holes are real; EasyEDA footprints carry no 3D bodies, so package
+orientation is verified with `get_pads`, not the render.
 
 ## 10. Save and undo
 
@@ -273,8 +294,8 @@ MCP only: `SKIP_ROUTING_TOOLS=1 dist/make_beta_package.sh`.
 
 ## 13. Deliberate limits
 
-- No schematic editor, no `move_footprint`. Autorouter only via
-  `autoroute_nets` (named nets, companion deb).
+- No schematic editor. Autorouter only via `autoroute_nets`
+  (named nets, companion deb).
 - No editing `.kicad_pcb` through this server.
 - Max 150 parts / tracks / vias per undo batch.
 - Polygon outline max 400 points.

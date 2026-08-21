@@ -143,9 +143,20 @@ die Dateien nicht von Hand anfasst.
    `place_matrix` (Raster: Origin = Zelle 0,0, +x Spalten, +y Zeilen,
    Pitch Mitte-zu-Mitte).
 
-Platzierung prüft F.CrtYd-Überlappung untereinander. Kein
-`move_footprint`: entfernen und neu setzen. LCSC-C-Nummern nicht durch
-generische KiCad-Library-Footprints ersetzen.
+Platzierung prüft F.CrtYd-Überlappung untereinander. `move_footprint`
+verschiebt und/oder dreht ein gesetztes Teil in einem Undo: starre
+Transformation von Anker und jedem gebackenen Pad — Netze, Referenz und
+Padstack-Geometrie bleiben erhalten (kein remove+place). Der Zielort
+wird Courtyard-geprüft. Kupfer zieht **nicht** mit — Leiterbahnen zum
+Teil neu ziehen. LCSC-C-Nummern nicht durch generische
+KiCad-Library-Footprints ersetzen.
+
+`get_pads` liefert jeden Pad als harte Daten direkt aus KiCads
+gebackenen Protos: Referenz, Pin, Netz, absolute x/y, Größe, Drehung,
+smd/pth/npth, Form, Lage, Bohrung; filterbar nach `reference` und/oder
+`net`. Damit Platzierung und Orientierung verifizieren (ein
+gespiegeltes oder falsch gedrehtes Teil zeigt Pads auf der falschen
+Seite des Ankers) statt aus Templates oder Renderings zu raten.
 
 Nested Pads werden nicht mit dem Parent transformiert. `place.rs` backt
 Board-Millimeter in jedes Pad. Ohne diesen Bake liegt das Kupfer in der
@@ -206,6 +217,7 @@ Keine parallelen Copper-Writes: KiCad `BeginCommit` verträgt das nicht.
 | `board_summary` | Lesen — Version, Zähler |
 | `get_footprints` | Lesen — Ref, Lage, Drehung |
 | `get_nets` | Lesen — Netze und Pads |
+| `get_pads` | Lesen — gebackene Pad-Wahrheit (Position, Netz, Drehung) |
 | `get_routing_scene` | Lesen — Tracks/Vias + IDs |
 | `list_parts` | Lesen — Templates inkl. Builtins |
 | `get_part_pins` | Lesen — EasyEDA `number` + `pin_name` |
@@ -216,6 +228,7 @@ Keine parallelen Copper-Writes: KiCad `BeginCommit` verträgt das nicht.
 | `place_footprint` | Schreiben |
 | `place_parts` | Schreiben — Batch |
 | `place_matrix` | Schreiben — Raster |
+| `move_footprint` | Schreiben — starres Verschieben/Drehen, Netze bleiben, Kupfer bleibt |
 | `remove_footprint` | Schreiben |
 | `clear_board` | Schreiben — Teile + Kupfer, Umriss bleibt |
 | `clear_zones` | Schreiben — nur Zonen |
@@ -229,8 +242,16 @@ Keine parallelen Copper-Writes: KiCad `BeginCommit` verträgt das nicht.
 | `autoroute_nets` | Schreiben — CLI-Autorouter, genannte Netze |
 | `ripup_wire` | Schreiben |
 | `check_drc` | Schreiben — `kicad-cli` DRC (speichert) |
+| `render_board` | Schreiben — 3D-PNG über `kicad-cli pcb render` (speichert) |
 | `save_board` | Schreiben — nur auf Wunsch |
 | `export_manufacturing` | Schreiben — JLCPCB: `*_gerbers.zip` + `*_bom.csv` + `*_cpl.csv` (`kicad-cli`) |
+
+`render_board` füllt Zonen, speichert und raytraced die Platine nach
+`<stem>_render_<side>.png` über `kicad-cli pcb render` (side
+top/bottom/left/right/front/back; optional `zoom`, `rotate [x,y,z]`,
+`perspective`, `floor`, `width`/`height`). Kupfer, Silk, Maske und
+Löcher sind echt; EasyEDA-Footprints haben keine 3D-Körper — die
+Orientierung der Gehäuse prüft man mit `get_pads`, nicht am Rendering.
 
 ## 10. Speichern und Undo
 
@@ -279,8 +300,8 @@ Nur MCP: `SKIP_ROUTING_TOOLS=1 dist/make_beta_package.sh`.
 
 ## 13. Bewusste Grenzen
 
-- Kein Schema-Editor, kein `move_footprint`. Autorouter nur über
-  `autoroute_nets` (genannte Netze, Companion-Deb).
+- Kein Schema-Editor. Autorouter nur über `autoroute_nets`
+  (genannte Netze, Companion-Deb).
 - Kein Edit von `.kicad_pcb` über diesen Server.
 - Maximal 150 Teile / Tracks / Vias pro Undo-Batch.
 - Polygon-Umriss max. 400 Punkte.
