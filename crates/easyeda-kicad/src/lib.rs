@@ -4,8 +4,9 @@
 //! Geometry comes from EasyEDA's undocumented product API — the same
 //! `PAD~shape~x~y~width~height~layer~net~number~holeDia~...` field order
 //! KiCad's own EasyEDA importer documents. Coordinates in EasyEDA PCB
-//! space are +x right, +y down; KiCad footprints are +y up, so emit
-//! flips Y (and negates pad rotation) once.
+//! space are +x right, +y down — the **same** convention `.kicad_mod`
+//! files use, so geometry passes through without any Y flip. (An earlier
+//! version negated Y here, which vertically mirrored every footprint.)
 //!
 //! Pin **numbers** come from the footprint pads. Pin **names/functions**
 //! come from the EasyEDA schematic SVG (`/svgs`). Both are written to
@@ -574,13 +575,18 @@ fn fmt_mm(v: f64) -> String {
         .to_string()
 }
 
-/// KiCad local millimetres: +x right, +y up.
+/// KiCad `.kicad_mod` files use +x right, **+y down** — the same axis
+/// convention as EasyEDA. Coordinates pass through unchanged; negating y
+/// here would mirror every footprint vertically (swapping e.g. VIN/GND on
+/// a SOT-223) even though the pad pattern still looks plausible.
 fn kicad_xy(pad: &Pad) -> (f64, f64) {
-    (pad.x_mm, -pad.y_mm)
+    (pad.x_mm, pad.y_mm)
 }
 
+/// Rotation passes through unchanged for the same reason: both canvases
+/// share the y-down frame, so the rotation sense is already identical.
 fn kicad_rot(pad: &Pad) -> f64 {
-    -pad.rotation_deg
+    pad.rotation_deg
 }
 
 pub fn emit_kicad_mod(part: &FetchedPart) -> String {
@@ -641,7 +647,7 @@ pub fn emit_kicad_mod_placed(part: &FetchedPart, place: Option<(f64, f64, f64, &
         let hw = c.width_mm / 2.0;
         let hh = c.height_mm / 2.0;
         let cx = c.center_x_mm;
-        let cy = -c.center_y_mm;
+        let cy = c.center_y_mm;
         courtyard_rect(&mut out, cx - hw, cy - hh, cx + hw, cy + hh);
     } else {
         let mut min_x = f64::INFINITY;
@@ -1063,10 +1069,41 @@ mod tests {
         assert!(sexpr.contains("(pad \"2\" smd rect"));
         assert!(sexpr.contains("(layer \"F.CrtYd\")"));
         assert!(sexpr.contains("C25804"));
-        // Y-flip: EasyEDA +y down → KiCad pad y should negate EasyEDA y (here ~0).
         for pad in &part.pads {
             assert!(pad.y_mm.abs() < 0.05);
         }
+    }
+
+    /// Chirality guard: EasyEDA and KiCad both use +y down, so pad
+    /// coordinates must pass through **without** y negation. The USBLC6
+    /// (SOT-23-6) fixture is real LCSC data; per the ST datasheet pin 1
+    /// sits diagonally opposite pin 4. A vertical mirror would swap
+    /// VBUS (pin 5) and GND (pin 2) rows and short the board.
+    #[test]
+    fn sot23_6_is_not_mirrored() {
+        let part = parse_response("C7519", &fixture("lcsc_c7519_usblc6.json"))
+            .expect("fixture must parse");
+        assert_eq!(part.pads.len(), 6);
+        let pad = |n: &str| part.pads.iter().find(|p| p.number == n).unwrap();
+        // Raw EasyEDA values (y-down frame): 1,2,3 on the +y row; 4,5,6 on −y.
+        assert!((pad("1").x_mm - -0.95).abs() < 0.01);
+        assert!((pad("1").y_mm - 1.149).abs() < 0.01);
+        assert!((pad("4").x_mm - 0.95).abs() < 0.01);
+        assert!((pad("4").y_mm - -1.149).abs() < 0.01);
+        // Emitted .kicad_mod keeps the same signs (no mirror).
+        let sexpr = emit_kicad_mod(&part);
+        assert!(
+            sexpr.contains("(pad \"1\" smd rect (at -0.95 1.149"),
+            "pad 1 must keep EasyEDA's y sign, got:\n{sexpr}"
+        );
+        assert!(
+            sexpr.contains("(pad \"6\" smd rect (at -0.95 -1.149"),
+            "pad 6 must keep EasyEDA's y sign, got:\n{sexpr}"
+        );
+        // Same chirality as KiCad's official SOT-23-6 rotated 90°:
+        // walking 1→2→3 and 4→5→6 both run +x (left to right).
+        assert!(pad("2").x_mm > pad("1").x_mm && pad("3").x_mm > pad("2").x_mm);
+        assert!(pad("5").x_mm < pad("4").x_mm && pad("6").x_mm < pad("5").x_mm);
     }
 
     #[test]
