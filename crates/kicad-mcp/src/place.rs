@@ -87,12 +87,18 @@ pub fn mm_to_nm(mm: f64) -> i64 {
 /// `get_footprints` reports) but draws nested pads at their raw coordinates —
 /// it does not parent-transform them. Bake board millimetres into each pad
 /// or the copper sits on the page origin (0,0) while the anchor is elsewhere.
+/// KiCad angles are positive **counterclockwise as displayed**, but the
+/// internal frame is y-down. In that frame a visually-CCW rotation is
+/// `(x·cos + y·sin, −x·sin + y·cos)` — the inverse of the y-up textbook
+/// matrix. Using the textbook matrix here bakes pads clockwise while the
+/// orientation field (and the CPL export JLCPCB assembles from) claims
+/// counterclockwise: every ±90° part would be soldered 180° off.
 pub(crate) fn world_xy(local_x: f64, local_y: f64, spec: &PlaceSpec<'_>) -> (f64, f64) {
     let rad = spec.rotation_deg.to_radians();
     let (s, c) = (rad.sin(), rad.cos());
     (
-        spec.x_mm + c * local_x - s * local_y,
-        spec.y_mm + s * local_x + c * local_y,
+        spec.x_mm + c * local_x + s * local_y,
+        spec.y_mm - s * local_x + c * local_y,
     )
 }
 
@@ -258,6 +264,7 @@ pub fn pads_aabb(pads: &[ModPad]) -> Aabb {
 }
 
 /// Translate + rotate a local AABB to board millimetres.
+/// Same visually-CCW rotation sense as [`world_xy`].
 pub fn aabb_at(local: &Aabb, x_mm: f64, y_mm: f64, rot_deg: f64) -> Aabb {
     let rad = rot_deg.to_radians();
     let (s, c) = (rad.sin(), rad.cos());
@@ -272,8 +279,8 @@ pub fn aabb_at(local: &Aabb, x_mm: f64, y_mm: f64, rot_deg: f64) -> Aabb {
     let mut max_x = f64::NEG_INFINITY;
     let mut max_y = f64::NEG_INFINITY;
     for (lx, ly) in corners {
-        let wx = x_mm + c * lx - s * ly;
-        let wy = y_mm + s * lx + c * ly;
+        let wx = x_mm + c * lx + s * ly;
+        let wy = y_mm - s * lx + c * ly;
         min_x = min_x.min(wx);
         max_x = max_x.max(wx);
         min_y = min_y.min(wy);
@@ -757,6 +764,29 @@ mod tests {
         let (x, y) = world_xy(0.75, 0.0, &spec);
         assert!((x - 123.75).abs() < 1e-9);
         assert!((y - 100.0).abs() < 1e-9);
+    }
+
+    /// Rotation-sense guard: KiCad's +90° is counterclockwise on screen.
+    /// In the y-down internal frame an east pad (+x) must land **north**
+    /// (smaller y) after +90°, matching the orientation field that the
+    /// CPL export hands to JLCPCB assembly. If this asserts, pads are
+    /// baked clockwise and every rotated asymmetric part solders 180° off.
+    #[test]
+    fn plus_90_rotates_counterclockwise_on_screen() {
+        let spec = PlaceSpec {
+            template: "t",
+            reference: "U1",
+            x_mm: 100.0,
+            y_mm: 100.0,
+            rotation_deg: 90.0,
+            pads: &[],
+        };
+        let (x, y) = world_xy(3.0, 0.0, &spec);
+        assert!((x - 100.0).abs() < 1e-9, "east pad must move to centre x, got {x}");
+        assert!(
+            (y - 97.0).abs() < 1e-9,
+            "east pad must land north (y-down frame: smaller y), got {y}"
+        );
     }
 
     #[test]
