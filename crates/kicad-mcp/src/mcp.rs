@@ -139,7 +139,7 @@ impl KicadMcp {
     }
 
     #[tool(
-        description = "Hard OK/fail placement audit. Recomputes every pad from its jlcpcb_parts template at the footprint's anchor + rotation and compares against the baked pads KiCad actually draws. A mirrored, mis-rotated or stale-baked part fails with per-pad deltas in mm (pin, expected vs actual position, plus size/angle/type mismatches). Thermal clusters with shared pin numbers are matched by nearest position. Optional reference filter; tolerance_mm default 0.01. Footprints without a template are listed as skipped, not failed. Run after placing or moving parts and on boards built with older kicad-mcp versions — trust this over any render."
+        description = "Hard OK/fail placement audit. Recomputes every pad from its jlcpcb_parts template at the footprint's anchor + rotation and compares against the baked pads KiCad actually draws. A mirrored, mis-rotated or stale-baked part fails with per-pad deltas in mm (pin, expected vs actual position, plus size/angle/type/drill mismatches — a lost NPTH hole or a slot baked as a round hole fails too). Thermal clusters with shared pin numbers are matched by nearest position. Optional reference filter; tolerance_mm default 0.01. Footprints without a template are listed as skipped, not failed. Run after placing or moving parts and on boards built with older kicad-mcp versions — trust this over any render."
     )]
     async fn check_placement(
         &self,

@@ -163,7 +163,9 @@ aus seinem `jlcpcb_parts`-Template am Anker + Rotation des Footprints
 neu berechnet und gegen die gebackenen Board-Pads verglichen. Ein
 gespiegeltes, falsch gedrehtes oder mit einer älteren kicad-mcp-Version
 gebackenes Teil fällt durch — mit Delta pro Pad in mm (Pin, erwartete
-vs. tatsächliche Position, dazu Größe/Winkel/Typ-Abweichungen).
+vs. tatsächliche Position, dazu Größe/Winkel/Typ/Bohrungs-Abweichungen;
+ein verlorenes NPTH-Loch oder ein als Rundloch gebackener Slot fällt
+ebenfalls durch).
 Thermal-Cluster mit gemeinsamer Pin-Nummer werden über die nächste
 Position gematcht. Optionaler `reference`-Filter, `tolerance_mm`
 Standard 0.01. Footprints ohne Template auf der Platte landen unter

@@ -160,7 +160,8 @@ recomputed from its `jlcpcb_parts` template at the footprint's anchor +
 rotation and compared against the baked board pads. A mirrored,
 mis-rotated or stale-baked part (placed by an older kicad-mcp) fails
 with per-pad deltas in mm — pin, expected vs actual position, plus
-size/angle/type mismatches. Thermal clusters that share a pin number
+size/angle/type/drill mismatches (a lost NPTH hole or a slot baked as
+a round hole fails too). Thermal clusters that share a pin number
 are matched by nearest position. Optional `reference` filter,
 `tolerance_mm` default 0.01. Footprints without a template on disk are
 listed as `skipped`, not failed. Run it after placing or moving parts;

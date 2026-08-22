@@ -60,6 +60,9 @@ pub struct PadRow {
     pub layer: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub drill_mm: Option<f64>,
+    /// Slot length for oblong drills; absent for round holes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub drill_h_mm: Option<f64>,
 }
 
 /// Baked pad rows for every footprint on the board (IPC raw protos, the
@@ -153,9 +156,16 @@ pub async fn board_pads(
                 },
                 drill_mm: stack
                     .drill
-                    .and_then(|d| d.diameter)
+                    .as_ref()
+                    .and_then(|d| d.diameter.as_ref())
                     .map(|v| round4(nm_to_mm(v.x_nm)))
                     .filter(|d| *d > 0.0),
+                drill_h_mm: stack
+                    .drill
+                    .as_ref()
+                    .and_then(|d| d.diameter.as_ref())
+                    .filter(|v| v.x_nm > 0 && v.y_nm != v.x_nm)
+                    .map(|v| round4(nm_to_mm(v.y_nm))),
             });
         }
     }
@@ -426,6 +436,8 @@ pub(crate) struct GeomPad {
     pub kind: &'static str,
     /// Circles have no meaningful angle.
     pub circle: bool,
+    /// Drill diameter (x, y). Round hole: x == y. None: no hole.
+    pub drill_mm: Option<(f64, f64)>,
 }
 
 fn geom_from_template(p: &crate::place::ModPad, spec: &crate::place::PlaceSpec<'_>) -> GeomPad {
@@ -444,6 +456,7 @@ fn geom_from_template(p: &crate::place::ModPad, spec: &crate::place::PlaceSpec<'
             ModPadKind::SmdFront | ModPadKind::SmdBack => "smd",
         },
         circle: p.shape == ModPadShape::Circle,
+        drill_mm: p.drill_mm.map(|d| (d, p.drill_h_mm.unwrap_or(d))),
     }
 }
 
@@ -458,7 +471,7 @@ fn geom_from_board(p: &PadDec) -> Option<GeomPad> {
         y_mm: nm_to_mm(pos.y_nm),
         width_mm: nm_to_mm(size.x_nm),
         height_mm: nm_to_mm(size.y_nm),
-        angle_deg: stack.angle.map(|a| a.value_degrees).unwrap_or(0.0),
+        angle_deg: stack.angle.as_ref().map(|a| a.value_degrees).unwrap_or(0.0),
         kind: match p.r#type {
             PT_PTH => "pth",
             PT_NPTH => "npth",
@@ -466,6 +479,12 @@ fn geom_from_board(p: &PadDec) -> Option<GeomPad> {
             _ => "?",
         },
         circle: copper.map(|c| c.shape) == Some(PSS_CIRCLE),
+        drill_mm: stack
+            .drill
+            .as_ref()
+            .and_then(|d| d.diameter.as_ref())
+            .filter(|v| v.x_nm > 0)
+            .map(|v| (nm_to_mm(v.x_nm), nm_to_mm(v.y_nm))),
     })
 }
 
@@ -563,6 +582,23 @@ pub(crate) fn diff_pads(
                     "problem": "angle",
                     "expected_deg": e.angle_deg,
                     "actual_deg": a.angle_deg,
+                }));
+            }
+            // Missing hole, extra hole, wrong diameter, or a slot baked as a
+            // round hole (drill y collapsed to x) all fail here.
+            let drill_ok = match (e.drill_mm, a.drill_mm) {
+                (None, None) => true,
+                (Some((ex, ey)), Some((ax, ay))) => {
+                    (ex - ax).abs() <= tol_mm && (ey - ay).abs() <= tol_mm
+                }
+                _ => false,
+            };
+            if !drill_ok {
+                problems.push(serde_json::json!({
+                    "pin": num,
+                    "problem": "drill",
+                    "expected_mm": e.drill_mm.map(|(x, y)| [round4(x), round4(y)]),
+                    "actual_mm": a.drill_mm.map(|(x, y)| [round4(x), round4(y)]),
                 }));
             }
         }
@@ -817,6 +853,7 @@ mod tests {
             width_mm: 0.8,
             height_mm: 0.9,
             drill_mm: None,
+            drill_h_mm: None,
         };
         vec![pad("1", -0.75), pad("2", 0.75)]
     }
@@ -987,6 +1024,7 @@ mod tests {
             width_mm: 0.8,
             height_mm: 0.9,
             drill_mm: None,
+            drill_h_mm: None,
         };
         let asym = vec![pad("1", -1.5), pad("2", 0.5)];
         let expected = expected_geoms(&asym, 100.0, 80.0, 0.0);
@@ -1055,6 +1093,64 @@ mod tests {
         assert!(diff_pads(&expected, &wrapped, 0.01).is_empty());
     }
 
+    /// The USB-C regression: a template slot (0.6×1.7 oblong drill) baked
+    /// as a 0.6 round hole, and an NPTH peg baked as a drill-less SMD pad —
+    /// both must fail the audit with a drill / pad_type problem.
+    #[test]
+    fn placement_check_fails_for_lost_holes() {
+        let slot = GeomPad {
+            number: "1".into(),
+            x_mm: 4.325,
+            y_mm: -1.7057,
+            width_mm: 0.9,
+            height_mm: 2.0,
+            angle_deg: 0.0,
+            kind: "pth",
+            circle: false,
+            drill_mm: Some((0.6, 1.7)),
+        };
+        let peg = GeomPad {
+            number: "".into(),
+            x_mm: 2.89,
+            y_mm: -1.1541,
+            width_mm: 0.6,
+            height_mm: 0.6,
+            angle_deg: 0.0,
+            kind: "npth",
+            circle: true,
+            drill_mm: Some((0.6, 0.6)),
+        };
+        let expected = vec![slot.clone(), peg.clone()];
+        // The stale bake: slot drill collapsed to a circle, peg became SMD
+        // without any hole.
+        let actual = vec![
+            GeomPad {
+                drill_mm: Some((0.6, 0.6)),
+                ..slot
+            },
+            GeomPad {
+                kind: "smd",
+                drill_mm: None,
+                ..peg
+            },
+        ];
+        let problems = diff_pads(&expected, &actual, 0.01);
+        assert!(
+            problems
+                .iter()
+                .any(|p| p["pin"] == "1" && p["problem"] == "drill"),
+            "{problems:?}"
+        );
+        assert!(problems
+            .iter()
+            .any(|p| p["pin"] == "" && p["problem"] == "pad_type"));
+        assert!(problems
+            .iter()
+            .any(|p| p["pin"] == "" && p["problem"] == "drill"));
+        // The correct bake passes.
+        assert!(diff_pads(&expected, &expected.clone(), 0.01).is_empty());
+    }
+
     /// Thermal clusters: several pads share one number; matching is by
     /// nearest position, so order must not matter.
     #[test]
@@ -1068,6 +1164,7 @@ mod tests {
             angle_deg: 0.0,
             kind: "smd",
             circle: false,
+            drill_mm: None,
         };
         let expected = vec![pad(10.0, 10.0), pad(12.0, 10.0), pad(11.0, 12.0)];
         let shuffled = vec![pad(11.0, 12.0), pad(10.0, 10.0), pad(12.0, 10.0)];

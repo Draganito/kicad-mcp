@@ -31,6 +31,9 @@ const PSS_OVAL: i32 = 3;
 const PT_PTH: i32 = 1;
 const PT_SMD: i32 = 2;
 const PT_NPTH: i32 = 4;
+// kiapi.board.types.DrillShape
+const DRILL_CIRCLE: i32 = 1;
+const DRILL_OBLONG: i32 = 2;
 const FMS_THROUGH_HOLE: i32 = 1;
 const FMS_SMD: i32 = 2;
 const HA_CENTER: i32 = 2;
@@ -66,7 +69,11 @@ pub struct ModPad {
     pub rot_deg: f64,
     pub width_mm: f64,
     pub height_mm: f64,
+    /// Drill diameter (x). For oblong drills this is the slot width.
     pub drill_mm: Option<f64>,
+    /// Slot length (drill y) for oblong drills, e.g. USB shield slots.
+    /// None means a round hole.
+    pub drill_h_mm: Option<f64>,
 }
 
 #[derive(Debug, Clone)]
@@ -360,10 +367,15 @@ pub fn load_template(
 
 fn parse_one_pad(sexpr: &str) -> Result<ModPad, String> {
     let number = quoted_after(sexpr, "(pad ").ok_or_else(|| "pad without number".to_string())?;
-    let kind = if sexpr.contains(" thru_hole ") {
-        ModPadKind::ThruHole
-    } else if sexpr.contains(" npth ") {
+    // `np_thru_hole` is KiCad's own token (EasyEDA-converted footprints);
+    // `npth` is the shorthand the builtin generators write. Check the long
+    // form first — matching ` thru_hole ` alone would misread neither, but
+    // falling through to SmdFront silently deleted the hole (USB-C
+    // positioning pegs baked as paste-covered SMD circles).
+    let kind = if sexpr.contains(" np_thru_hole ") || sexpr.contains(" npth ") {
         ModPadKind::Npth
+    } else if sexpr.contains(" thru_hole ") {
+        ModPadKind::ThruHole
     } else if sexpr.contains("\"B.Cu\"") {
         ModPadKind::SmdBack
     } else {
@@ -379,7 +391,9 @@ fn parse_one_pad(sexpr: &str) -> Result<ModPad, String> {
     let at = tuple_after(sexpr, "(at ").ok_or_else(|| format!("pad {number} missing (at)"))?;
     let size =
         tuple_after(sexpr, "(size ").ok_or_else(|| format!("pad {number} missing (size)"))?;
-    let drill = tuple_after(sexpr, "(drill ").map(|v| v[0]);
+    // `(drill 0.6)` → round; `(drill oval 0.6 1.7)` → slot (the word `oval`
+    // is skipped by the numeric parser, leaving [width, length]).
+    let drill = tuple_after(sexpr, "(drill ");
     Ok(ModPad {
         number,
         kind,
@@ -389,7 +403,8 @@ fn parse_one_pad(sexpr: &str) -> Result<ModPad, String> {
         rot_deg: if at.len() >= 3 { at[2] } else { 0.0 },
         width_mm: size[0],
         height_mm: size.get(1).copied().unwrap_or(size[0]),
-        drill_mm: drill,
+        drill_mm: drill.as_ref().map(|v| v[0]),
+        drill_h_mm: drill.as_ref().and_then(|v| v.get(1).copied()),
     })
 }
 
@@ -494,12 +509,23 @@ fn pad_any(pad: &ModPad) -> Any {
         pad_stack: Some(PadStack {
             r#type: PST_NORMAL,
             layers,
-            drill: pad.drill_mm.map(|d| DrillProperties {
-                diameter: Some(Vector2 {
-                    x_nm: mm_to_nm(d),
-                    y_nm: mm_to_nm(d),
-                }),
-                ..Default::default()
+            drill: pad.drill_mm.map(|d| {
+                let h = pad.drill_h_mm.unwrap_or(d);
+                DrillProperties {
+                    diameter: Some(Vector2 {
+                        x_nm: mm_to_nm(d),
+                        y_nm: mm_to_nm(h),
+                    }),
+                    // Without the explicit shape KiCad drills a round hole
+                    // even when x≠y — the USB-C shield slots came out as
+                    // 0.6 mm circles in the Excellon file.
+                    shape: if (h - d).abs() > 1e-9 {
+                        DRILL_OBLONG
+                    } else {
+                        DRILL_CIRCLE
+                    },
+                    ..Default::default()
+                }
             }),
             copper_layers: vec![PadStackLayer {
                 layer: copper_layer,
@@ -741,6 +767,73 @@ mod tests {
         assert!((pads[0].x_mm - 0.7534).abs() < 1e-6);
         assert_eq!(pads[1].number, "1");
         assert_eq!(pads[1].kind, ModPadKind::SmdFront);
+    }
+
+    /// The exact pad lines of the C165948 USB-C footprint. `np_thru_hole`
+    /// must become NPTH (not a paste-covered SMD circle) and the oval drill
+    /// must keep its slot length — both were silently dropped once, leaving
+    /// the connector without positioning holes and with 0.6 mm round holes
+    /// where 0.6×1.7 shield slots belong.
+    #[test]
+    fn parses_npth_pegs_and_oval_drill_slots() {
+        let src = r#"(footprint "C165948_USB-C"
+  (pad "1" thru_hole oval (at 4.325 -1.7057) (size 0.9 2) (drill oval 0.6 1.7) (layers "*.Cu" "*.Mask"))
+  (pad "" np_thru_hole circle (at 2.89 -1.1541) (size 0.6 0.6) (drill 0.6) (layers "*.Cu" "*.Mask"))
+)"#;
+        let pads = parse_kicad_mod_pads(src).unwrap();
+        assert_eq!(pads.len(), 2);
+        let slot = &pads[0];
+        assert_eq!(slot.kind, ModPadKind::ThruHole);
+        assert_eq!(slot.drill_mm, Some(0.6));
+        assert_eq!(slot.drill_h_mm, Some(1.7));
+        let peg = &pads[1];
+        assert_eq!(peg.kind, ModPadKind::Npth);
+        assert_eq!(peg.drill_mm, Some(0.6));
+        assert_eq!(peg.drill_h_mm, None);
+    }
+
+    /// The builtin generators write the short `npth` token — must still work.
+    #[test]
+    fn parses_builtin_npth_token() {
+        let src = r#"(footprint "MountingHole_M3_NPTH"
+  (pad "" npth circle (at 0 0) (size 3.2 3.2) (drill 3.2) (layers "*.Cu" "*.Mask"))
+)"#;
+        let pads = parse_kicad_mod_pads(src).unwrap();
+        assert_eq!(pads[0].kind, ModPadKind::Npth);
+        assert_eq!(pads[0].drill_mm, Some(3.2));
+    }
+
+    /// Baked proto keeps the oblong drill: diameter x≠y and shape OBLONG.
+    #[test]
+    fn bakes_oval_drill_as_oblong() {
+        let pad = ModPad {
+            number: "1".into(),
+            kind: ModPadKind::ThruHole,
+            shape: ModPadShape::Oval,
+            x_mm: 0.0,
+            y_mm: 0.0,
+            rot_deg: 0.0,
+            width_mm: 0.9,
+            height_mm: 2.0,
+            drill_mm: Some(0.6),
+            drill_h_mm: Some(1.7),
+        };
+        let any = pad_any(&pad);
+        let decoded = Pad::decode(any.value.as_slice()).unwrap();
+        let drill = decoded.pad_stack.unwrap().drill.unwrap();
+        assert_eq!(drill.shape, DRILL_OBLONG);
+        let d = drill.diameter.unwrap();
+        assert_eq!(d.x_nm, 600_000);
+        assert_eq!(d.y_nm, 1_700_000);
+        // Round hole stays a circle.
+        let round = ModPad {
+            drill_h_mm: None,
+            ..pad
+        };
+        let decoded = Pad::decode(pad_any(&round).value.as_slice()).unwrap();
+        let drill = decoded.pad_stack.unwrap().drill.unwrap();
+        assert_eq!(drill.shape, DRILL_CIRCLE);
+        assert_eq!(drill.diameter.unwrap().y_nm, 600_000);
     }
 
     #[test]
