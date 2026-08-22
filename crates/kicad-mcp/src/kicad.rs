@@ -106,7 +106,7 @@ pub struct Kicad {
 impl Kicad {
     pub async fn connect() -> Result<Self, String> {
         let client = KiCadClient::builder()
-            .timeout(Duration::from_secs(60))
+            .timeout(Duration::from_secs(180))
             .connect()
             .await
             .map_err(fmt_err)?;
@@ -368,6 +368,59 @@ impl Kicad {
 
     pub async fn refill_all_zones(&self) -> Result<(), String> {
         self.client.refill_all_zones().await.map_err(fmt_err)
+    }
+
+    pub async fn enabled_layers(&self) -> Result<(u32, Vec<(i32, String)>), String> {
+        let layers = self
+            .client
+            .get_board_enabled_layers()
+            .await
+            .map_err(fmt_err)?;
+        Ok((
+            layers.copper_layer_count,
+            layers
+                .layers
+                .into_iter()
+                .map(|l| (l.id, l.name))
+                .collect(),
+        ))
+    }
+
+    pub async fn copper_layer_count(&self) -> Result<u32, String> {
+        Ok(self
+            .client
+            .get_board_enabled_layers()
+            .await
+            .map_err(fmt_err)?
+            .copper_layer_count)
+    }
+
+    /// Even count 2–8. Non-copper layers are kept. Removing copper deletes
+    /// items on those layers and is not undoable.
+    pub async fn set_copper_layer_count(&self, count: u32) -> Result<u32, String> {
+        if count < 2 || count > 8 || count % 2 != 0 {
+            return Err("copper_layer_count must be 2, 4, 6 or 8".into());
+        }
+        let current = self
+            .client
+            .get_board_enabled_layers()
+            .await
+            .map_err(fmt_err)?;
+        if current.copper_layer_count == count {
+            return Ok(count);
+        }
+        let non_copper: Vec<i32> = current
+            .layers
+            .iter()
+            .filter(|l| !crate::copper::is_copper_layer_id(l.id))
+            .map(|l| l.id)
+            .collect();
+        let updated = self
+            .client
+            .set_board_enabled_layers(count, non_copper)
+            .await
+            .map_err(fmt_err)?;
+        Ok(updated.copper_layer_count)
     }
 
     pub async fn delete_ids(&self, ids: Vec<String>) -> Result<Vec<String>, String> {

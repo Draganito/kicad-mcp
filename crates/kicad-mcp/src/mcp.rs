@@ -732,7 +732,7 @@ impl KicadMcp {
     }
 
     #[tool(
-        description = "Create one straight copper track (no autorouter). a_x_mm/a_y_mm to b_x_mm/b_y_mm in KiCad millimetres. net is required (from connect_pins / get_nets). layer is F.Cu or B.Cu (default F.Cu). width_mm defaults to 0.25. Ctrl+Z undoes."
+        description = "Create one straight copper track (no autorouter). a_x_mm/a_y_mm to b_x_mm/b_y_mm in KiCad millimetres. net is required (from connect_pins / get_nets). layer is F.Cu, In1.Cu, In2.Cu or B.Cu (default F.Cu). width_mm defaults to 0.25. Ctrl+Z undoes."
     )]
     async fn add_track(
         &self,
@@ -923,7 +923,7 @@ impl KicadMcp {
     }
 
     #[tool(
-        description = "Place a stitching via + short F.Cu stub next to a pin, radially away from the part. Single pin: reference+pin (net optional). Batch: net=\"GND\" stitches every SMD pad on that net that does not already have a same-net via nearby (max 250). Sweeps ±15°…±90° if the natural spot is blocked. Via and stub both refuse pads and tracks (a data line between pad and via skips that angle). Skip PTH/NPTH. Power pours on 5V usually need no vias — use this for GND. drill_mm 0.3, size_mm 0.6, stub 0.25. One undo. Ctrl+Z undoes."
+        description = "Place a stitching via + short F.Cu stub next to a pin, radially away from the part. Through-via spans every copper layer on the current stack (2- or 4-layer). Single pin: reference+pin (net optional). Batch: net=\"GND\" or net=\"5V\" stitches every SMD pad on that net that does not already have a same-net via nearby (max 250). Sweeps ±15°…±90° if the natural spot is blocked. Via and stub both refuse pads and tracks. Skip PTH/NPTH. Use GND always; use 5V when the 5V pour is an inner layer (In1.Cu), not F.Cu. drill_mm 0.3, size_mm 0.6, stub 0.25. One undo. Ctrl+Z undoes."
     )]
     async fn stitch_via(
         &self,
@@ -950,7 +950,7 @@ impl KicadMcp {
     }
 
     #[tool(
-        description = "Create a copper zone (pour) and refill. net is required (5V or GND). layer is F.Cu or B.Cu (default F.Cu). 5V pads always get thermal relief (never solid) for JLCPCB HASL/SMT. Rectangle: origin+size. Polygon: points. Pads should already sit on that net via connect_pins. Ctrl+Z undoes."
+        description = "Create a copper zone (pour) and refill. net is required (5V or GND). layer is F.Cu, In1.Cu, In2.Cu or B.Cu (default F.Cu). Pads connect solid unless thermal=true: then PTH pads get 1.2 mm thermal spokes (vias and SMD stay solid). Rectangle: origin+size. Polygon: points. Pads should already sit on that net via connect_pins. Ctrl+Z undoes."
     )]
     async fn set_copper_zone(
         &self,
@@ -961,6 +961,7 @@ impl KicadMcp {
         }
         with_kicad(self, move |k| async move {
             let layer = crate::copper::parse_copper_layer(args.layer.as_deref())?;
+            let thermal = args.thermal.unwrap_or(false);
             let poly: Vec<(f64, f64)> = args
                 .points
                 .as_ref()
@@ -969,12 +970,13 @@ impl KicadMcp {
             let mut codes = board_net_codes(&k).await;
             let net_code = codes.code_for(&args.net);
             let item = if poly.len() >= 3 {
-                crate::copper::poly_zone_mm_coded(
+                crate::copper::poly_zone_mm_ex(
                     &poly,
                     layer,
                     &args.net,
                     args.name.as_deref(),
                     net_code,
+                    thermal,
                 )?
             } else {
                 let ox = args
@@ -989,7 +991,17 @@ impl KicadMcp {
                 let h = args
                     .height_mm
                     .ok_or_else(|| "set_copper_zone needs origin+size or points".to_string())?;
-                crate::copper::rect_zone_any(ox, oy, w, h, layer, &args.net, args.name.as_deref())?
+                crate::copper::rect_zone_any_coded(
+                    ox,
+                    oy,
+                    w,
+                    h,
+                    layer,
+                    &args.net,
+                    args.name.as_deref(),
+                    net_code,
+                    thermal,
+                )?
             };
             let session = k.begin_commit().await?;
             match k.create_items(vec![item]).await {
@@ -1018,6 +1030,26 @@ impl KicadMcp {
                     Err(e)
                 }
             }
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Set the board copper layer count (2, 4, 6 or 8). Copper layers are assigned from the count (F.Cu, In1.Cu…, B.Cu); existing non-copper layers stay. Removing layers deletes their copper and is not undoable. Typical 4-layer power stack: F.Cu data, In1.Cu 5V, In2.Cu + B.Cu GND. Call clear_zones first if old F.Cu/B.Cu pours should not stay."
+    )]
+    async fn set_copper_layers(
+        &self,
+        Parameters(args): Parameters<SetCopperLayersArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        if let Some(refusal) = self.require_write() {
+            return refusal;
+        }
+        with_kicad(self, move |k| async move {
+            let count = k.set_copper_layer_count(args.copper_layer_count).await?;
+            Ok(serde_json::json!({
+                "ok": true,
+                "copper_layer_count": count,
+            }))
         })
         .await
     }
@@ -1148,8 +1180,9 @@ impl KicadMcp {
                 Some(dir) => std::path::PathBuf::from(dir),
                 None => k.project_dir().await?,
             };
+            let copper = k.copper_layer_count().await.unwrap_or(2);
             let files = tokio::task::spawn_blocking(move || {
-                crate::fab::export_manufacturing(&board, &out_dir, &footprints)
+                crate::fab::export_manufacturing(&board, &out_dir, &footprints, copper)
             })
             .await
             .map_err(|e| e.to_string())??;
@@ -1608,6 +1641,14 @@ pub struct SetZoneArgs {
     pub layer: Option<String>,
     pub name: Option<String>,
     pub points: Option<Vec<OutlinePoint>>,
+    /// Thermal spokes instead of solid pad connection. Default false (solid).
+    pub thermal: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct SetCopperLayersArgs {
+    /// Even count 2–8. 4 enables F.Cu, In1.Cu, In2.Cu, B.Cu.
+    pub copper_layer_count: u32,
 }
 
 async fn commit_connect(
@@ -1677,7 +1718,7 @@ async fn commit_disconnect(
 impl ServerHandler for KicadMcp {
     fn get_info(&self) -> ServerInfo {
         let write_note = if self.allow_ai_write {
-            "Write tools are ENABLED (--allow-ai-write): download_lcsc_part, make_wire_pad, make_mounting_hole, place_footprint, place_parts, place_matrix, move_footprint, remove_footprint, clear_board, clear_zones, set_board_outline, connect_pins, connect_many, disconnect_pin, disconnect_many, add_track, add_tracks, add_via, add_vias, stitch_via, set_copper_zone, autoroute_nets, ripup_wire, check_drc, render_board, save_board, export_manufacturing."
+            "Write tools are ENABLED (--allow-ai-write): download_lcsc_part, make_wire_pad, make_mounting_hole, place_footprint, place_parts, place_matrix, move_footprint, remove_footprint, clear_board, clear_zones, set_board_outline, connect_pins, connect_many, disconnect_pin, disconnect_many, add_track, add_tracks, add_via, add_vias, stitch_via, set_copper_zone, set_copper_layers, autoroute_nets, ripup_wire, check_drc, render_board, save_board, export_manufacturing."
         } else {
             "Write tools are DISABLED. Relaunch with --allow-ai-write."
         };
@@ -1700,7 +1741,7 @@ impl ServerHandler for KicadMcp {
              Typical write path: clear_board, set_board_outline, place_parts or place_matrix, connect_many \
              (assigns every pad that shares a pin number, e.g. thermal pad 41), \
              disconnect_pin to put a pad back on unconnected after a mis-wire, \
-             autoroute_nets for named signal nets (not GND), set_copper_zone for 5V/GND. \
+             autoroute_nets for named signal nets (not GND), set_copper_layers then set_copper_zone for 5V/GND. \
              move_footprint relocates/rotates a placed part (rigid transform, nets stay, copper does not move). \
              get_pads reports every pad with absolute position, rotation and net — verify placement with it \
              instead of guessing. check_placement is the hard audit: template pads recomputed at \

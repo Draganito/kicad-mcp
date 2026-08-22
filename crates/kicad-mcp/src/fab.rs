@@ -16,12 +16,24 @@ use std::process::Command;
 use crate::builtins::{MOUNTING_HOLE_M3, WIRE_PAD};
 use crate::kicad::FootprintInfo;
 
-const JLC_GERBER_LAYERS: &str = "F.Cu,B.Cu,F.Paste,B.Paste,F.SilkS,B.SilkS,F.Mask,B.Mask,Edge.Cuts";
+const JLC_MECH_LAYERS: &str = "F.Paste,B.Paste,F.SilkS,B.SilkS,F.Mask,B.Mask,Edge.Cuts";
 
 const PLOT_EXTS: &[&str] = &[
     "gtl", "gbl", "gts", "gbs", "gto", "gbo", "gtp", "gbp", "gm1", "gm2", "gm3", "gbr", "gbrjob",
-    "drl", "gd1",
+    "drl", "gd1", "g1", "g2", "g3", "g4", "g5", "g6", "g7",
 ];
+
+/// Copper layers for `kicad-cli pcb export gerbers` plus JLCPCB mechanicals.
+pub fn jlc_gerber_layers(copper_layer_count: u32) -> String {
+    let count = copper_layer_count.clamp(2, 8);
+    let mut layers = vec!["F.Cu".to_string()];
+    for i in 1..=count.saturating_sub(2) {
+        layers.push(format!("In{i}.Cu"));
+    }
+    layers.push("B.Cu".to_string());
+    layers.push(JLC_MECH_LAYERS.to_string());
+    layers.join(",")
+}
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ManufacturingFiles {
@@ -44,6 +56,7 @@ pub fn export_manufacturing(
     board_file: &Path,
     out_dir: &Path,
     footprints: &[FootprintInfo],
+    copper_layer_count: u32,
 ) -> Result<ManufacturingFiles, String> {
     if !board_file.is_file() {
         return Err(format!(
@@ -73,7 +86,7 @@ pub fn export_manufacturing(
             "--output",
             plot_dir.to_str().ok_or("plot dir is not UTF-8")?,
             "--layers",
-            JLC_GERBER_LAYERS,
+            &jlc_gerber_layers(copper_layer_count),
             "--exclude-refdes",
             "--exclude-value",
             "--subtract-soldermask",
@@ -654,6 +667,16 @@ fn parse_csv_line(line: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gerber_layers_include_inners_on_four_layer() {
+        assert_eq!(
+            jlc_gerber_layers(2),
+            "F.Cu,B.Cu,F.Paste,B.Paste,F.SilkS,B.SilkS,F.Mask,B.Mask,Edge.Cuts"
+        );
+        assert!(jlc_gerber_layers(4).contains("In1.Cu,In2.Cu"));
+        assert!(jlc_gerber_layers(4).starts_with("F.Cu,In1.Cu,In2.Cu,B.Cu,"));
+    }
 
     fn fp(reference: &str, value: &str) -> FootprintInfo {
         FootprintInfo {

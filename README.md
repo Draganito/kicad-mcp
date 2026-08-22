@@ -103,7 +103,7 @@ Write: `download_lcsc_part`, `make_wire_pad`, `make_mounting_hole`,
 `remove_footprint`, `clear_board`, `clear_zones`, `set_board_outline`,
 `connect_pins`, `connect_many`, `disconnect_pin`, `disconnect_many`,
 `add_track`, `add_tracks`, `add_via`,
-`add_vias`, `stitch_via`, `set_copper_zone`, `autoroute_nets`,
+`add_vias`, `stitch_via`, `set_copper_zone`, `set_copper_layers`, `autoroute_nets`,
 `ripup_wire` (by `segment_id`), `check_drc`, `render_board`,
 `save_board`, `export_manufacturing`.
 

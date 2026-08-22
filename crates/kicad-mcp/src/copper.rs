@@ -6,6 +6,7 @@ use prost_types::Any;
 use crate::place::mm_to_nm;
 
 const BL_F_CU: i32 = 3;
+const BL_IN1_CU: i32 = 4;
 const BL_B_CU: i32 = 34;
 const LS_UNLOCKED: i32 = 1;
 const PSS_CIRCLE: i32 = 1;
@@ -14,13 +15,12 @@ const PST_FRONT_INNER_BACK: i32 = 2;
 const ZT_COPPER: i32 = 1;
 const ZFM_SOLID: i32 = 1;
 const IRM_NEVER: i32 = 2;
-const ZCS_THERMAL: i32 = 3;
+const ZCS_FULL: i32 = 4;
 const ZCS_PTH_THERMAL: i32 = 5;
-/// 5V SMD thermals (JLCPCB HASL / no tombstone).
-const THERMAL_SPOKE_NM: i64 = 300_000;
+/// PTH wire-pad thermals (hand-solder). 4 × 1.2 mm on inner 1 oz ≈ 7 A at 20 °C.
+/// Vias and SMD stay solid (`ZCS_PTH_THERMAL`).
+const PTH_SPOKE_NM: i64 = 1_200_000;
 const THERMAL_GAP_NM: i64 = 500_000;
-/// GND wire-pad PTH: wider spokes, vias stay solid (`ZCS_PTH_THERMAL`).
-const GND_PTH_SPOKE_NM: i64 = 500_000;
 
 const TYPE_TRACK: &str = "type.googleapis.com/kiapi.board.types.Track";
 const TYPE_VIA: &str = "type.googleapis.com/kiapi.board.types.Via";
@@ -35,18 +35,56 @@ const ZONE_CLEARANCE_NM: i64 = 200_000;
 const ZONE_MIN_THICKNESS_NM: i64 = 250_000;
 
 pub fn parse_copper_layer(name: Option<&str>) -> Result<i32, String> {
-    match name.unwrap_or("F.Cu") {
-        "F.Cu" | "F_Cu" | "f.cu" => Ok(BL_F_CU),
-        "B.Cu" | "B_Cu" | "b.cu" => Ok(BL_B_CU),
-        other => Err(format!("copper layer must be F.Cu or B.Cu (got {other})")),
+    let raw = name.unwrap_or("F.Cu").trim();
+    let n = raw.replace('_', ".");
+    match n.as_str() {
+        "F.Cu" | "f.cu" => return Ok(BL_F_CU),
+        "B.Cu" | "b.cu" => return Ok(BL_B_CU),
+        _ => {}
+    }
+    let rest = n
+        .strip_prefix("In")
+        .or_else(|| n.strip_prefix("in"))
+        .ok_or_else(|| copper_layer_err(raw))?;
+    let num = rest
+        .strip_suffix(".Cu")
+        .or_else(|| rest.strip_suffix(".cu"))
+        .ok_or_else(|| copper_layer_err(raw))?;
+    let i: i32 = num.parse().map_err(|_| copper_layer_err(raw))?;
+    if (1..=30).contains(&i) {
+        Ok(BL_IN1_CU + i - 1)
+    } else {
+        Err(copper_layer_err(raw))
     }
 }
 
-pub fn layer_name(id: i32) -> &'static str {
+fn copper_layer_err(got: &str) -> String {
+    format!("copper layer must be F.Cu, In1.Cu…In30.Cu or B.Cu (got {got})")
+}
+
+pub fn layer_name(id: i32) -> String {
     match id {
-        BL_B_CU => "B.Cu",
-        _ => "F.Cu",
+        BL_F_CU => "F.Cu".into(),
+        BL_B_CU => "B.Cu".into(),
+        n if (BL_IN1_CU..=33).contains(&n) => format!("In{}.Cu", n - BL_IN1_CU + 1),
+        _ => format!("layer_{id}"),
     }
+}
+
+/// KiCad copper ids: F.Cu=3, In1.Cu=4 … In30.Cu=33, B.Cu=34.
+pub fn is_copper_layer_id(id: i32) -> bool {
+    id == BL_F_CU || id == BL_B_CU || (BL_IN1_CU..=33).contains(&id)
+}
+
+/// Through-via copper: F.Cu, inner layers for this stack, B.Cu.
+pub fn through_via_layers(copper_layer_count: u32) -> Vec<i32> {
+    let count = copper_layer_count.clamp(2, 32);
+    let mut layers = vec![BL_F_CU];
+    for i in 0..count.saturating_sub(2) {
+        layers.push(BL_IN1_CU + i as i32);
+    }
+    layers.push(BL_B_CU);
+    layers
 }
 
 pub fn track_any(
@@ -115,6 +153,26 @@ pub fn via_any_coded(
     size_mm: Option<f64>,
     net_code: i32,
 ) -> Result<Any, String> {
+    via_any_on_layers(
+        x_mm,
+        y_mm,
+        net,
+        drill_mm,
+        size_mm,
+        net_code,
+        &through_via_layers(2),
+    )
+}
+
+pub fn via_any_on_layers(
+    x_mm: f64,
+    y_mm: f64,
+    net: &str,
+    drill_mm: Option<f64>,
+    size_mm: Option<f64>,
+    net_code: i32,
+    copper_layers: &[i32],
+) -> Result<Any, String> {
     if net.trim().is_empty() {
         return Err("add_via needs a net name (connect_pins first)".into());
     }
@@ -126,6 +184,13 @@ pub fn via_any_coded(
     if size <= drill {
         return Err("via copper diameter must be larger than the drill".into());
     }
+    let layers = if copper_layers.len() < 2 {
+        through_via_layers(2)
+    } else {
+        copper_layers.to_vec()
+    };
+    let start = *layers.first().unwrap_or(&BL_F_CU);
+    let end = *layers.last().unwrap_or(&BL_B_CU);
     let item = Via {
         position: Some(Vector2 {
             x_nm: mm_to_nm(x_mm),
@@ -133,20 +198,20 @@ pub fn via_any_coded(
         }),
         pad_stack: Some(PadStack {
             r#type: PST_FRONT_INNER_BACK,
-            layers: vec![BL_F_CU, BL_B_CU],
+            layers: layers.clone(),
             drill: Some(DrillProperties {
-                start_layer: BL_F_CU,
-                end_layer: BL_B_CU,
+                start_layer: start,
+                end_layer: end,
                 diameter: Some(Vector2 {
                     x_nm: mm_to_nm(drill),
                     y_nm: mm_to_nm(drill),
                 }),
                 shape: PSS_CIRCLE,
             }),
-            copper_layers: vec![
-                via_copper_layer(BL_F_CU, size),
-                via_copper_layer(BL_B_CU, size),
-            ],
+            copper_layers: layers
+                .iter()
+                .map(|layer| via_copper_layer(*layer, size))
+                .collect(),
         }),
         locked: LS_UNLOCKED,
         net: Some(net_msg(net, net_code)),
@@ -191,6 +256,38 @@ pub fn rect_zone_any(
         net,
         name,
         0,
+        false,
+    )
+}
+
+pub fn rect_zone_any_coded(
+    origin_x_mm: f64,
+    origin_y_mm: f64,
+    width_mm: f64,
+    height_mm: f64,
+    layer: i32,
+    net: &str,
+    name: Option<&str>,
+    net_code: i32,
+    thermal: bool,
+) -> Result<Any, String> {
+    if net.trim().is_empty() {
+        return Err("set_copper_zone needs a net name (connect_pins first)".into());
+    }
+    if width_mm < 2.0 || height_mm < 2.0 {
+        return Err("copper zone must be at least 2 × 2 mm".into());
+    }
+    let x0 = mm_to_nm(origin_x_mm);
+    let y0 = mm_to_nm(origin_y_mm);
+    let x1 = mm_to_nm(origin_x_mm + width_mm);
+    let y1 = mm_to_nm(origin_y_mm + height_mm);
+    poly_zone_any(
+        &[(x0, y0), (x1, y0), (x1, y1), (x0, y1)],
+        layer,
+        net,
+        name,
+        net_code,
+        thermal,
     )
 }
 
@@ -217,7 +314,7 @@ pub fn poly_zone_mm(
         .iter()
         .map(|(x, y)| (mm_to_nm(*x), mm_to_nm(*y)))
         .collect();
-    poly_zone_any(&nm, layer, net, name, 0)
+    poly_zone_any(&nm, layer, net, name, 0, false)
 }
 
 pub fn poly_zone_mm_coded(
@@ -226,6 +323,17 @@ pub fn poly_zone_mm_coded(
     net: &str,
     name: Option<&str>,
     net_code: i32,
+) -> Result<Any, String> {
+    poly_zone_mm_ex(points_mm, layer, net, name, net_code, false)
+}
+
+pub fn poly_zone_mm_ex(
+    points_mm: &[(f64, f64)],
+    layer: i32,
+    net: &str,
+    name: Option<&str>,
+    net_code: i32,
+    thermal: bool,
 ) -> Result<Any, String> {
     if net.trim().is_empty() {
         return Err("set_copper_zone needs a net name (connect_pins first)".into());
@@ -243,7 +351,7 @@ pub fn poly_zone_mm_coded(
         .iter()
         .map(|(x, y)| (mm_to_nm(*x), mm_to_nm(*y)))
         .collect();
-    poly_zone_any(&nm, layer, net, name, net_code)
+    poly_zone_any(&nm, layer, net, name, net_code, thermal)
 }
 
 fn poly_zone_any(
@@ -252,6 +360,7 @@ fn poly_zone_any(
     net: &str,
     name: Option<&str>,
     net_code: i32,
+    thermal: bool,
 ) -> Result<Any, String> {
     let nodes = corners_nm
         .iter()
@@ -277,7 +386,7 @@ fn poly_zone_any(
         name: name.unwrap_or(net).to_string(),
         locked: LS_UNLOCKED,
         settings: Some(zone::Settings::CopperSettings(CopperZoneSettings {
-            connection: zone_pad_connection(net),
+            connection: zone_pad_connection(net, thermal),
             clearance: Some(Distance {
                 value_nm: ZONE_CLEARANCE_NM,
             }),
@@ -292,14 +401,24 @@ fn poly_zone_any(
     Ok(pack(&zone, TYPE_ZONE))
 }
 
-fn zone_pad_connection(net: &str) -> Option<ZoneConnectionSettings> {
-    let (style, spoke_nm) = match net {
-        "5V" => (ZCS_THERMAL, THERMAL_SPOKE_NM),
-        "GND" => (ZCS_PTH_THERMAL, GND_PTH_SPOKE_NM),
-        _ => return None,
+fn zone_pad_connection(net: &str, thermal: bool) -> Option<ZoneConnectionSettings> {
+    if !thermal {
+        return Some(ZoneConnectionSettings {
+            zone_connection: ZCS_FULL,
+            thermal_spokes: None,
+        });
+    }
+    let spoke_nm = match net {
+        "5V" | "GND" => PTH_SPOKE_NM,
+        _ => {
+            return Some(ZoneConnectionSettings {
+                zone_connection: ZCS_FULL,
+                thermal_spokes: None,
+            })
+        }
     };
     Some(ZoneConnectionSettings {
-        zone_connection: style,
+        zone_connection: ZCS_PTH_THERMAL,
         thermal_spokes: Some(ThermalSpokeSettings {
             width: Some(Distance { value_nm: spoke_nm }),
             gap: Some(Distance {
@@ -550,22 +669,36 @@ mod tests {
     }
 
     #[test]
-    fn fivev_zone_uses_thermal_relief() {
+    fn zone_defaults_to_solid_connection() {
         let any = rect_zone_any(0.0, 0.0, 40.0, 30.0, BL_F_CU, "5V", None).unwrap();
         let z = Zone::decode(any.value.as_slice()).unwrap();
         let Some(zone::Settings::CopperSettings(s)) = z.settings else {
             panic!("expected copper settings");
         };
         let conn = s.connection.expect("5V zone must set pad connection");
-        assert_eq!(conn.zone_connection, ZCS_THERMAL);
+        assert_eq!(conn.zone_connection, ZCS_FULL);
+        assert!(conn.thermal_spokes.is_none());
+    }
+
+    #[test]
+    fn fivev_zone_can_request_pth_thermal() {
+        let any =
+            rect_zone_any_coded(0.0, 0.0, 40.0, 30.0, BL_F_CU, "5V", None, 0, true).unwrap();
+        let z = Zone::decode(any.value.as_slice()).unwrap();
+        let Some(zone::Settings::CopperSettings(s)) = z.settings else {
+            panic!("expected copper settings");
+        };
+        let conn = s.connection.expect("5V zone must set pad connection");
+        assert_eq!(conn.zone_connection, ZCS_PTH_THERMAL);
         let spokes = conn.thermal_spokes.expect("thermal spokes");
-        assert_eq!(spokes.width.unwrap().value_nm, THERMAL_SPOKE_NM);
+        assert_eq!(spokes.width.unwrap().value_nm, PTH_SPOKE_NM);
         assert_eq!(spokes.gap.unwrap().value_nm, THERMAL_GAP_NM);
     }
 
     #[test]
-    fn gnd_zone_uses_pth_thermal() {
-        let any = rect_zone_any(0.0, 0.0, 40.0, 30.0, BL_B_CU, "GND", None).unwrap();
+    fn gnd_zone_can_request_pth_thermal() {
+        let any =
+            rect_zone_any_coded(0.0, 0.0, 40.0, 30.0, BL_B_CU, "GND", None, 0, true).unwrap();
         let z = Zone::decode(any.value.as_slice()).unwrap();
         let Some(zone::Settings::CopperSettings(s)) = z.settings else {
             panic!("expected copper settings");
@@ -573,7 +706,25 @@ mod tests {
         let conn = s.connection.expect("GND zone must set pad connection");
         assert_eq!(conn.zone_connection, ZCS_PTH_THERMAL);
         let spokes = conn.thermal_spokes.expect("thermal spokes");
-        assert_eq!(spokes.width.unwrap().value_nm, GND_PTH_SPOKE_NM);
+        assert_eq!(spokes.width.unwrap().value_nm, PTH_SPOKE_NM);
         assert_eq!(spokes.gap.unwrap().value_nm, THERMAL_GAP_NM);
+    }
+
+    #[test]
+    fn parses_inner_copper_layers() {
+        assert_eq!(parse_copper_layer(Some("In1.Cu")).unwrap(), BL_IN1_CU);
+        assert_eq!(parse_copper_layer(Some("In2.Cu")).unwrap(), BL_IN1_CU + 1);
+        assert_eq!(layer_name(BL_IN1_CU + 1), "In2.Cu");
+        assert_eq!(through_via_layers(4), vec![BL_F_CU, 4, 5, BL_B_CU]);
+    }
+
+    #[test]
+    fn four_layer_via_lists_inner_copper() {
+        let layers = through_via_layers(4);
+        let any = via_any_on_layers(1.0, 2.0, "5V", Some(0.3), Some(0.6), 0, &layers).unwrap();
+        let v = Via::decode(any.value.as_slice()).unwrap();
+        let stack = v.pad_stack.unwrap();
+        let got: Vec<i32> = stack.copper_layers.iter().map(|l| l.layer).collect();
+        assert_eq!(got, vec![BL_F_CU, 4, 5, BL_B_CU]);
     }
 }

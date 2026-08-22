@@ -197,8 +197,9 @@ rail from the companion pad.
 - `add_via` / `add_vias` (max 150)
 - `stitch_via` — GND via + F.Cu stub next to a pin or every SMD pad on
   a net (`net: "GND"`)
+- `set_copper_layers` — copper count 2/4/6/8 (not undoable)
 - `set_copper_zone` — rectangle or polygon; net e.g. `5V` / `GND`;
-  layer `F.Cu` or `B.Cu`; then refill
+  layer `F.Cu` / `In1.Cu` / `In2.Cu` / `B.Cu`; pads solid unless `thermal=true`; then refill
 - `clear_zones` — delete copper zones (tracks stay)
 - `ripup_wire` — `segment_id` from `get_routing_scene`
 - `autoroute_nets` — named nets via the plugin CLI, then reload and
@@ -246,6 +247,7 @@ KiCad `BeginCommit` races.
 | `add_track` / `add_tracks` | Write — track |
 | `add_via` / `add_vias` | Write — via |
 | `stitch_via` | Write — GND via + stub |
+| `set_copper_layers` | Write — copper count 2/4/6/8 |
 | `set_copper_zone` | Write — pour + refill |
 | `autoroute_nets` | Write — CLI autorouter, named nets |
 | `ripup_wire` | Write |

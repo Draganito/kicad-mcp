@@ -203,8 +203,9 @@ Polarität — GND vs. Rail vom Nachbarpad.
 - `add_via` / `add_vias` (max. 150)
 - `stitch_via` — GND-Via + F.Cu-Stub neben einem Pin oder allen SMD-Pads
   eines Netzes (`net: "GND"`)
+- `set_copper_layers` — Kupferlagen 2/4/6/8 (nicht undo-bar)
 - `set_copper_zone` — Rechteck oder Polygon; Netz z. B. `5V` / `GND`;
-  Lage `F.Cu` oder `B.Cu`; danach Refill
+  Lage `F.Cu` / `In1.Cu` / `In2.Cu` / `B.Cu`; Pads solid, `thermal=true` für Speichen; danach Refill
 - `clear_zones` — alle Kupferzonen löschen (Bahnen bleiben)
 - `ripup_wire` — `segment_id` aus `get_routing_scene`
 - `autoroute_nets` — genannte Netze über die Plugin-CLI, dann Reload
@@ -253,6 +254,7 @@ Keine parallelen Copper-Writes: KiCad `BeginCommit` verträgt das nicht.
 | `add_track` / `add_tracks` | Schreiben — Leiterbahn |
 | `add_via` / `add_vias` | Schreiben — Via |
 | `stitch_via` | Schreiben — GND-Via + Stub |
+| `set_copper_layers` | Schreiben — Kupferlagen 2/4/6/8 |
 | `set_copper_zone` | Schreiben — Pour + Refill |
 | `autoroute_nets` | Schreiben — CLI-Autorouter, genannte Netze |
 | `ripup_wire` | Schreiben |
