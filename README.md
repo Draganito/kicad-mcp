@@ -95,7 +95,8 @@ Without `--allow-ai-write`, every write tool refuses.
 ## Tools
 
 Read: `board_summary`, `get_footprints`, `get_nets`, `get_pads`,
-`get_routing_scene`, `list_parts`, `get_part_pins`, `check_board`.
+`check_placement`, `get_routing_scene`, `list_parts`, `get_part_pins`,
+`check_board`.
 
 Write: `download_lcsc_part`, `make_wire_pad`, `make_mounting_hole`,
 `place_footprint`, `place_parts`, `place_matrix`, `move_footprint`,

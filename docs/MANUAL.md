@@ -155,6 +155,17 @@ verify placement and orientation (a mirrored or mis-rotated part shows
 pads on the wrong side of the anchor) instead of guessing from
 templates or renders.
 
+`check_placement` turns that into a hard OK/fail audit: every pad is
+recomputed from its `jlcpcb_parts` template at the footprint's anchor +
+rotation and compared against the baked board pads. A mirrored,
+mis-rotated or stale-baked part (placed by an older kicad-mcp) fails
+with per-pad deltas in mm — pin, expected vs actual position, plus
+size/angle/type mismatches. Thermal clusters that share a pin number
+are matched by nearest position. Optional `reference` filter,
+`tolerance_mm` default 0.01. Footprints without a template on disk are
+listed as `skipped`, not failed. Run it after placing or moving parts;
+trust it over any render.
+
 Nested pads are not parent-transformed. `place.rs` bakes board
 millimetres into every pad. Without that bake, copper piles up at the
 sheet corner (0,0) while the API still claims the part is in the middle.
@@ -213,6 +224,7 @@ KiCad `BeginCommit` races.
 | `get_footprints` | Read — ref, position, rotation |
 | `get_nets` | Read — nets and pads |
 | `get_pads` | Read — baked pad truth (position, net, rotation) |
+| `check_placement` | Read — hard OK/fail: template pads vs baked pads |
 | `get_routing_scene` | Read — tracks/vias + ids |
 | `list_parts` | Read — templates including builtins |
 | `get_part_pins` | Read — EasyEDA `number` + `pin_name` |

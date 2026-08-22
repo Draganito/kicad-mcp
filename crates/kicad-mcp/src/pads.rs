@@ -412,6 +412,281 @@ pub async fn move_footprint(
     }
 }
 
+/// One pad reduced to comparable geometry — either recomputed from the
+/// template (expected) or decoded from the board (actual).
+#[derive(Debug, Clone)]
+pub(crate) struct GeomPad {
+    pub number: String,
+    pub x_mm: f64,
+    pub y_mm: f64,
+    pub width_mm: f64,
+    pub height_mm: f64,
+    pub angle_deg: f64,
+    /// `smd`, `pth`, `npth`.
+    pub kind: &'static str,
+    /// Circles have no meaningful angle.
+    pub circle: bool,
+}
+
+fn geom_from_template(p: &crate::place::ModPad, spec: &crate::place::PlaceSpec<'_>) -> GeomPad {
+    use crate::place::{ModPadKind, ModPadShape};
+    let (x, y) = crate::place::world_xy(p.x_mm, p.y_mm, spec);
+    GeomPad {
+        number: p.number.clone(),
+        x_mm: x,
+        y_mm: y,
+        width_mm: p.width_mm,
+        height_mm: p.height_mm,
+        angle_deg: p.rot_deg + spec.rotation_deg,
+        kind: match p.kind {
+            ModPadKind::Npth => "npth",
+            ModPadKind::ThruHole => "pth",
+            ModPadKind::SmdFront | ModPadKind::SmdBack => "smd",
+        },
+        circle: p.shape == ModPadShape::Circle,
+    }
+}
+
+fn geom_from_board(p: &PadDec) -> Option<GeomPad> {
+    let pos = p.position.clone()?;
+    let stack = p.pad_stack.clone().unwrap_or_default();
+    let copper = stack.copper_layers.first();
+    let size = copper.and_then(|c| c.size.clone()).unwrap_or_default();
+    Some(GeomPad {
+        number: p.number.clone(),
+        x_mm: nm_to_mm(pos.x_nm),
+        y_mm: nm_to_mm(pos.y_nm),
+        width_mm: nm_to_mm(size.x_nm),
+        height_mm: nm_to_mm(size.y_nm),
+        angle_deg: stack.angle.map(|a| a.value_degrees).unwrap_or(0.0),
+        kind: match p.r#type {
+            PT_PTH => "pth",
+            PT_NPTH => "npth",
+            PT_SMD => "smd",
+            _ => "?",
+        },
+        circle: copper.map(|c| c.shape) == Some(PSS_CIRCLE),
+    })
+}
+
+/// Shortest signed distance between two angles, in degrees.
+fn angle_diff_deg(a: f64, b: f64) -> f64 {
+    let mut d = (a - b) % 360.0;
+    if d > 180.0 {
+        d -= 360.0;
+    }
+    if d < -180.0 {
+        d += 360.0;
+    }
+    d.abs()
+}
+
+const ANGLE_TOL_DEG: f64 = 0.5;
+const PROBLEM_CAP: usize = 10;
+
+/// Compare expected (template @ anchor+rotation) against actual (baked
+/// board pads). Pads are grouped by pin number and matched nearest-first,
+/// so thermal clusters with one shared number work. Returns one problem
+/// row per mismatch — empty means the footprint is placed exactly as its
+/// template says. A mirrored part fails with y-deltas, a wrong rotation
+/// sense fails with swapped axes, a stale bake fails on every pad.
+pub(crate) fn diff_pads(
+    expected: &[GeomPad],
+    actual: &[GeomPad],
+    tol_mm: f64,
+) -> Vec<serde_json::Value> {
+    let mut problems = Vec::new();
+    let mut numbers: Vec<&str> = expected
+        .iter()
+        .chain(actual.iter())
+        .map(|p| p.number.as_str())
+        .collect();
+    numbers.sort_unstable();
+    numbers.dedup();
+    for num in numbers {
+        let exp: Vec<&GeomPad> = expected.iter().filter(|p| p.number == num).collect();
+        let mut act: Vec<&GeomPad> = actual.iter().filter(|p| p.number == num).collect();
+        if exp.len() != act.len() {
+            problems.push(serde_json::json!({
+                "pin": num,
+                "problem": "pad_count",
+                "expected": exp.len(),
+                "actual": act.len(),
+            }));
+            continue;
+        }
+        for e in exp {
+            let (idx, _) = act
+                .iter()
+                .enumerate()
+                .min_by(|(_, a), (_, b)| {
+                    let da = (a.x_mm - e.x_mm).hypot(a.y_mm - e.y_mm);
+                    let db = (b.x_mm - e.x_mm).hypot(b.y_mm - e.y_mm);
+                    da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .expect("same length as exp");
+            let a = act.remove(idx);
+            let delta = (a.x_mm - e.x_mm).hypot(a.y_mm - e.y_mm);
+            if delta > tol_mm {
+                problems.push(serde_json::json!({
+                    "pin": num,
+                    "problem": "position",
+                    "expected_x_mm": round4(e.x_mm),
+                    "expected_y_mm": round4(e.y_mm),
+                    "actual_x_mm": round4(a.x_mm),
+                    "actual_y_mm": round4(a.y_mm),
+                    "delta_mm": round4(delta),
+                }));
+                continue;
+            }
+            if e.kind != a.kind {
+                problems.push(serde_json::json!({
+                    "pin": num,
+                    "problem": "pad_type",
+                    "expected": e.kind,
+                    "actual": a.kind,
+                }));
+            }
+            if (e.width_mm - a.width_mm).abs() > tol_mm
+                || (e.height_mm - a.height_mm).abs() > tol_mm
+            {
+                problems.push(serde_json::json!({
+                    "pin": num,
+                    "problem": "size",
+                    "expected_mm": [round4(e.width_mm), round4(e.height_mm)],
+                    "actual_mm": [round4(a.width_mm), round4(a.height_mm)],
+                }));
+            }
+            if !e.circle && angle_diff_deg(e.angle_deg, a.angle_deg) > ANGLE_TOL_DEG {
+                problems.push(serde_json::json!({
+                    "pin": num,
+                    "problem": "angle",
+                    "expected_deg": e.angle_deg,
+                    "actual_deg": a.angle_deg,
+                }));
+            }
+        }
+    }
+    problems
+}
+
+/// Hard OK/fail placement audit: recompute every pad from the template at
+/// the footprint's anchor + rotation, compare against the baked board pads.
+pub async fn check_placement(
+    k: &Kicad,
+    reference: Option<&str>,
+    tolerance_mm: f64,
+) -> Result<serde_json::Value, String> {
+    if !(0.0001..=1.0).contains(&tolerance_mm) {
+        return Err("tolerance_mm must be between 0.0001 and 1.0".into());
+    }
+    let dir = k.project_dir().await?;
+    let pretty = crate::kicad::jlc_pretty_dir(&dir);
+    let fps = k.footprints().await?;
+    let raws = k
+        .raw_items(vec![kicad_ipc_rs::PcbObjectTypeCode::new_footprint().code])
+        .await?;
+    let mut actual_by_id: HashMap<String, Vec<GeomPad>> = HashMap::new();
+    for raw in &raws {
+        let Ok(inst) = FpInstDec::decode(raw.value.as_slice()) else {
+            continue;
+        };
+        let Some(id) = inst.id else { continue };
+        let pads = inst
+            .definition
+            .map(|def| {
+                def.items
+                    .iter()
+                    .filter_map(decode_pad)
+                    .filter_map(|p| geom_from_board(&p))
+                    .collect()
+            })
+            .unwrap_or_default();
+        actual_by_id.insert(id.value, pads);
+    }
+
+    let mut templates: HashMap<String, Result<Vec<crate::place::ModPad>, String>> = HashMap::new();
+    let mut passed: Vec<String> = Vec::new();
+    let mut failed: Vec<serde_json::Value> = Vec::new();
+    let mut skipped: Vec<serde_json::Value> = Vec::new();
+    let mut matched_filter = false;
+
+    for fp in &fps {
+        let Some(r) = fp.reference.as_deref() else {
+            continue;
+        };
+        if let Some(want) = reference {
+            if r != want {
+                continue;
+            }
+        }
+        matched_filter = true;
+        let skip = |reason: &str| serde_json::json!({ "reference": r, "reason": reason });
+        let Some(template) = fp.value.as_deref() else {
+            skipped.push(skip("footprint has no template name (value field)"));
+            continue;
+        };
+        let entry = templates.entry(template.to_string()).or_insert_with(|| {
+            crate::place::load_template(&pretty, template).map(|t| t.pads)
+        });
+        let tpl_pads = match entry {
+            Ok(p) => p.clone(),
+            Err(e) => {
+                skipped.push(skip(&format!("template not verifiable: {e}")));
+                continue;
+            }
+        };
+        let Some(actual) = fp.id.as_deref().and_then(|id| actual_by_id.get(id)) else {
+            skipped.push(skip("raw footprint proto not found over IPC"));
+            continue;
+        };
+        let spec = crate::place::PlaceSpec {
+            template,
+            reference: r,
+            x_mm: fp.x_mm.unwrap_or(0.0),
+            y_mm: fp.y_mm.unwrap_or(0.0),
+            rotation_deg: fp.rotation_deg.unwrap_or(0.0),
+            pads: &[],
+        };
+        let expected: Vec<GeomPad> = tpl_pads.iter().map(|p| geom_from_template(p, &spec)).collect();
+        let mut problems = diff_pads(&expected, actual, tolerance_mm);
+        if problems.is_empty() {
+            passed.push(r.to_string());
+        } else {
+            let truncated = problems.len() > PROBLEM_CAP;
+            let total = problems.len();
+            problems.truncate(PROBLEM_CAP);
+            failed.push(serde_json::json!({
+                "reference": r,
+                "template": template,
+                "x_mm": spec.x_mm,
+                "y_mm": spec.y_mm,
+                "rotation_deg": spec.rotation_deg,
+                "problem_count": total,
+                "problems": problems,
+                "problems_truncated": truncated,
+            }));
+        }
+    }
+
+    if reference.is_some() && !matched_filter {
+        return Err(format!(
+            "{} is not on the board",
+            reference.unwrap_or_default()
+        ));
+    }
+    passed.sort_by_key(|r| natural_ref(r));
+    Ok(serde_json::json!({
+        "ok": failed.is_empty(),
+        "checked": passed.len() + failed.len(),
+        "failed_count": failed.len(),
+        "failed": failed,
+        "passed": passed,
+        "skipped": skipped,
+        "tolerance_mm": tolerance_mm,
+    }))
+}
+
 fn decode_pad(item: &Any) -> Option<PadDec> {
     if !item.type_url.is_empty() && !item.type_url.contains("Pad") {
         return None;
@@ -659,6 +934,149 @@ mod tests {
             assert!((pa.1 - pb.1).abs() < 1e-6, "{} x {} vs {}", pa.0, pa.1, pb.1);
             assert!((pa.2 - pb.2).abs() < 1e-6, "{} y {} vs {}", pa.0, pa.2, pb.2);
         }
+    }
+
+    fn geoms_from_instance(any: &Any) -> Vec<GeomPad> {
+        FpInstDec::decode(any.value.as_slice())
+            .unwrap()
+            .definition
+            .unwrap()
+            .items
+            .iter()
+            .filter_map(decode_pad)
+            .filter_map(|p| geom_from_board(&p))
+            .collect()
+    }
+
+    fn expected_geoms(pads: &[ModPad], x: f64, y: f64, rot: f64) -> Vec<GeomPad> {
+        let spec = PlaceSpec {
+            template: "T",
+            reference: "R1",
+            x_mm: x,
+            y_mm: y,
+            rotation_deg: rot,
+            pads: &[],
+        };
+        pads.iter().map(|p| geom_from_template(p, &spec)).collect()
+    }
+
+    /// A part baked by the fixed pipeline must pass at every rotation —
+    /// template math and pad bake are the same formula.
+    #[test]
+    fn placement_check_passes_for_correct_bake() {
+        let pads = two_pads();
+        for rot in [0.0, 90.0, 180.0, -90.0] {
+            let inst = instance(100.0, 80.0, rot, &pads);
+            let actual = geoms_from_instance(&inst);
+            let expected = expected_geoms(&pads, 100.0, 80.0, rot);
+            let problems = diff_pads(&expected, &actual, 0.01);
+            assert!(problems.is_empty(), "rot {rot}: {problems:?}");
+        }
+    }
+
+    /// The old converter bug: every pad vertically mirrored about the anchor.
+    #[test]
+    fn placement_check_fails_for_mirrored_pads() {
+        let pad = |n: &str, y: f64| ModPad {
+            number: n.into(),
+            kind: ModPadKind::SmdFront,
+            shape: ModPadShape::Rect,
+            x_mm: 0.0,
+            y_mm: y,
+            rot_deg: 0.0,
+            width_mm: 0.8,
+            height_mm: 0.9,
+            drill_mm: None,
+        };
+        let asym = vec![pad("1", -1.5), pad("2", 0.5)];
+        let expected = expected_geoms(&asym, 100.0, 80.0, 0.0);
+        let mut actual = expected.clone();
+        for a in &mut actual {
+            a.y_mm = 80.0 - (a.y_mm - 80.0); // mirror about the anchor
+        }
+        let problems = diff_pads(&expected, &actual, 0.01);
+        assert_eq!(problems.len(), 2, "{problems:?}");
+        assert!(problems.iter().all(|p| p["problem"] == "position"));
+        // Pin 1 sat 1.5 mm north; mirrored it is 1.5 mm south → 3 mm off.
+        let p1 = problems.iter().find(|p| p["pin"] == "1").unwrap();
+        assert!((p1["delta_mm"].as_f64().unwrap() - 3.0).abs() < 1e-6);
+    }
+
+    /// The old rotation-sense bug: pads baked clockwise while the
+    /// orientation field claims counterclockwise.
+    #[test]
+    fn placement_check_fails_for_clockwise_bake() {
+        let pads = two_pads();
+        let expected = expected_geoms(&pads, 100.0, 80.0, 90.0);
+        // Clockwise bake: east pad lands south instead of north.
+        let mut actual = expected.clone();
+        for a in &mut actual {
+            a.y_mm = 80.0 - (a.y_mm - 80.0);
+        }
+        let problems = diff_pads(&expected, &actual, 0.01);
+        assert_eq!(problems.len(), 2, "{problems:?}");
+        let p2 = problems.iter().find(|p| p["pin"] == "2").unwrap();
+        assert!((p2["delta_mm"].as_f64().unwrap() - 1.5).abs() < 1e-6);
+    }
+
+    /// A stale bake: the orientation field says 180° but the pads still
+    /// sit where a 0° placement put them (e.g. rotated in a buggy build).
+    #[test]
+    fn placement_check_fails_for_stale_bake() {
+        let pads = two_pads();
+        let inst_at_0 = instance(100.0, 80.0, 0.0, &pads);
+        let actual = geoms_from_instance(&inst_at_0);
+        let expected = expected_geoms(&pads, 100.0, 80.0, 180.0);
+        let problems = diff_pads(&expected, &actual, 0.01);
+        assert_eq!(problems.len(), 2, "{problems:?}");
+        assert!(problems.iter().all(|p| p["problem"] == "position"));
+    }
+
+    #[test]
+    fn placement_check_flags_count_size_and_angle() {
+        let pads = two_pads();
+        let expected = expected_geoms(&pads, 0.0, 0.0, 0.0);
+        // Missing pad.
+        let problems = diff_pads(&expected, &expected[..1], 0.01);
+        assert!(problems.iter().any(|p| p["problem"] == "pad_count"));
+        // Wrong size.
+        let mut fat = expected.clone();
+        fat[0].width_mm += 0.2;
+        let problems = diff_pads(&expected, &fat, 0.01);
+        assert!(problems.iter().any(|p| p["problem"] == "size"));
+        // Wrong pad angle (rect turned 90°).
+        let mut turned = expected.clone();
+        turned[1].angle_deg = 90.0;
+        let problems = diff_pads(&expected, &turned, 0.01);
+        assert!(problems.iter().any(|p| p["problem"] == "angle"));
+        // Full turns are not a mismatch.
+        let mut wrapped = expected.clone();
+        wrapped[1].angle_deg = 360.0;
+        assert!(diff_pads(&expected, &wrapped, 0.01).is_empty());
+    }
+
+    /// Thermal clusters: several pads share one number; matching is by
+    /// nearest position, so order must not matter.
+    #[test]
+    fn placement_check_handles_shared_pin_numbers() {
+        let pad = |x: f64, y: f64| GeomPad {
+            number: "41".into(),
+            x_mm: x,
+            y_mm: y,
+            width_mm: 1.0,
+            height_mm: 1.0,
+            angle_deg: 0.0,
+            kind: "smd",
+            circle: false,
+        };
+        let expected = vec![pad(10.0, 10.0), pad(12.0, 10.0), pad(11.0, 12.0)];
+        let shuffled = vec![pad(11.0, 12.0), pad(10.0, 10.0), pad(12.0, 10.0)];
+        assert!(diff_pads(&expected, &shuffled, 0.01).is_empty());
+        let mut off = shuffled.clone();
+        off[1].x_mm += 0.5;
+        let problems = diff_pads(&expected, &off, 0.01);
+        assert_eq!(problems.len(), 1);
+        assert_eq!(problems[0]["problem"], "position");
     }
 
     #[test]

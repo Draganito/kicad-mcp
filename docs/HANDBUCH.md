@@ -158,6 +158,18 @@ smd/pth/npth, Form, Lage, Bohrung; filterbar nach `reference` und/oder
 gespiegeltes oder falsch gedrehtes Teil zeigt Pads auf der falschen
 Seite des Ankers) statt aus Templates oder Renderings zu raten.
 
+`check_placement` macht daraus ein hartes OK/Fail-Audit: jeder Pad wird
+aus seinem `jlcpcb_parts`-Template am Anker + Rotation des Footprints
+neu berechnet und gegen die gebackenen Board-Pads verglichen. Ein
+gespiegeltes, falsch gedrehtes oder mit einer älteren kicad-mcp-Version
+gebackenes Teil fällt durch — mit Delta pro Pad in mm (Pin, erwartete
+vs. tatsächliche Position, dazu Größe/Winkel/Typ-Abweichungen).
+Thermal-Cluster mit gemeinsamer Pin-Nummer werden über die nächste
+Position gematcht. Optionaler `reference`-Filter, `tolerance_mm`
+Standard 0.01. Footprints ohne Template auf der Platte landen unter
+`skipped`, nicht unter failed. Nach Platzieren oder Verschieben laufen
+lassen; das Ergebnis zählt mehr als jedes Rendering.
+
 Nested Pads werden nicht mit dem Parent transformiert. `place.rs` backt
 Board-Millimeter in jedes Pad. Ohne diesen Bake liegt das Kupfer in der
 Blatt-Ecke (0,0), während die API behauptet, das Teil sitze in der Mitte.
@@ -218,6 +230,7 @@ Keine parallelen Copper-Writes: KiCad `BeginCommit` verträgt das nicht.
 | `get_footprints` | Lesen — Ref, Lage, Drehung |
 | `get_nets` | Lesen — Netze und Pads |
 | `get_pads` | Lesen — gebackene Pad-Wahrheit (Position, Netz, Drehung) |
+| `check_placement` | Lesen — hartes OK/Fail: Template-Pads vs. gebackene Pads |
 | `get_routing_scene` | Lesen — Tracks/Vias + IDs |
 | `list_parts` | Lesen — Templates inkl. Builtins |
 | `get_part_pins` | Lesen — EasyEDA `number` + `pin_name` |

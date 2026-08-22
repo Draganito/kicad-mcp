@@ -139,6 +139,24 @@ impl KicadMcp {
     }
 
     #[tool(
+        description = "Hard OK/fail placement audit. Recomputes every pad from its jlcpcb_parts template at the footprint's anchor + rotation and compares against the baked pads KiCad actually draws. A mirrored, mis-rotated or stale-baked part fails with per-pad deltas in mm (pin, expected vs actual position, plus size/angle/type mismatches). Thermal clusters with shared pin numbers are matched by nearest position. Optional reference filter; tolerance_mm default 0.01. Footprints without a template are listed as skipped, not failed. Run after placing or moving parts and on boards built with older kicad-mcp versions — trust this over any render."
+    )]
+    async fn check_placement(
+        &self,
+        Parameters(args): Parameters<CheckPlacementArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        with_kicad(self, move |k| async move {
+            let reference = args
+                .reference
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty());
+            crate::pads::check_placement(&k, reference, args.tolerance_mm.unwrap_or(0.01)).await
+        })
+        .await
+    }
+
+    #[tool(
         description = "Connectivity snapshot: footprints, nets, and pads whose net_name is empty or 'unconnected'. For copper clearance / silk / hole DRC use check_drc."
     )]
     async fn check_board(&self) -> Result<CallToolResult, McpError> {
@@ -1432,6 +1450,14 @@ pub struct GetPadsArgs {
     pub net: Option<String>,
 }
 
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+pub struct CheckPlacementArgs {
+    /// Audit only this footprint, e.g. `"U6"`. Omit for the whole board.
+    pub reference: Option<String>,
+    /// Position/size tolerance in mm (default 0.01).
+    pub tolerance_mm: Option<f64>,
+}
+
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct MoveFootprintArgs {
     /// Footprint reference, e.g. `"U14"`.
@@ -1677,7 +1703,9 @@ impl ServerHandler for KicadMcp {
              autoroute_nets for named signal nets (not GND), set_copper_zone for 5V/GND. \
              move_footprint relocates/rotates a placed part (rigid transform, nets stay, copper does not move). \
              get_pads reports every pad with absolute position, rotation and net — verify placement with it \
-             instead of guessing. render_board writes a PNG (kicad-cli pcb render) for visual checks \
+             instead of guessing. check_placement is the hard audit: template pads recomputed at \
+             anchor+rotation vs the baked board pads; mirrored/mis-rotated/stale parts fail with mm deltas. \
+             Run it after placing or moving. render_board writes a PNG (kicad-cli pcb render) for visual checks \
              (no 3D bodies on EasyEDA parts). Copper: get_routing_scene then ripup_wire with segment_id. \
              autoroute_nets calls the Routing Tools CLI, reloads, and refills zones (no Ctrl+Z for that step). \
              After copper, check_drc (kicad-cli) then check_board. \
