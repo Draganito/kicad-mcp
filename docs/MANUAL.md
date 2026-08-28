@@ -205,6 +205,8 @@ rail from the companion pad.
 - `autoroute_nets` — named nets via the plugin CLI, then reload and
   refill zones
 - `check_drc` — `kicad-cli pcb drc` (clearance, silk, holes); saves
+- `review_board` — read only: GND/power pour, adjacent layers, via
+  at each cap GND (3 mm). Not DRC, not 90° corners. Before “done”.
 
 ### Silk text
 
@@ -239,6 +241,7 @@ KiCad `BeginCommit` races.
 | `list_parts` | Read — templates including builtins |
 | `get_part_pins` | Read — EasyEDA `number` + `pin_name` |
 | `check_board` | Read — pads with empty net |
+| `review_board` | Read — short physics report (pour, return path, cap via) |
 | `download_lcsc_part` | Write — EasyEDA → library + pins |
 | `make_wire_pad` | Write — parametric PTH wire pad template |
 | `make_mounting_hole` | Write — parametric NPTH hole template |

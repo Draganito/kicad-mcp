@@ -414,6 +414,7 @@ fn poly_zone_any(
             }],
         }),
         name: name.unwrap_or(net).to_string(),
+        filled: false,
         locked: LS_UNLOCKED,
         settings: Some(zone::Settings::CopperSettings(CopperZoneSettings {
             connection: zone_pad_connection(net, pads),
@@ -668,10 +669,45 @@ struct Zone {
     outline: Option<PolySet>,
     #[prost(string, tag = "5")]
     name: String,
+    #[prost(bool, tag = "9")]
+    filled: bool,
     #[prost(int32, tag = "12")]
     locked: i32,
     #[prost(oneof = "zone::Settings", tags = "6")]
     settings: Option<zone::Settings>,
+}
+
+/// Copper pour as read back from GetItems (net + layers). Keepouts are skipped.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ZoneSnap {
+    pub name: String,
+    pub net: String,
+    pub layer_ids: Vec<i32>,
+}
+
+pub fn zone_snap_from_any(any: &Any) -> Option<ZoneSnap> {
+    if !any.type_url.contains("Zone") {
+        return None;
+    }
+    let z = Zone::decode(any.value.as_slice()).ok()?;
+    let net = match &z.settings {
+        Some(zone::Settings::CopperSettings(s)) => s
+            .net
+            .as_ref()
+            .map(|n| n.name.as_str())
+            .filter(|n| !n.is_empty())
+            .unwrap_or(z.name.as_str())
+            .to_string(),
+        _ => return None,
+    };
+    if net.is_empty() {
+        return None;
+    }
+    Some(ZoneSnap {
+        name: z.name,
+        net,
+        layer_ids: z.layers,
+    })
 }
 
 mod zone {
@@ -875,5 +911,13 @@ mod tests {
         let stack = v.pad_stack.unwrap();
         let got: Vec<i32> = stack.copper_layers.iter().map(|l| l.layer).collect();
         assert_eq!(got, vec![BL_F_CU, 4, 5, BL_B_CU]);
+    }
+
+    #[test]
+    fn zone_snap_reads_net_and_layer() {
+        let any = rect_zone_any(0.0, 0.0, 40.0, 30.0, BL_B_CU, "GND", None).unwrap();
+        let snap = zone_snap_from_any(&any).expect("copper zone");
+        assert_eq!(snap.net, "GND");
+        assert_eq!(snap.layer_ids, vec![BL_B_CU]);
     }
 }

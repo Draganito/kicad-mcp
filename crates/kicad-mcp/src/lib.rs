@@ -10,6 +10,7 @@
 //!    back to unconnected. Tracks/vias/zones are CreateItems.
 //! 5. Copper: tracks, vias, stitch vias, then zones.
 //! 6. `silk` — F.Silkscreen / B.Silkscreen board text (connector labels).
+//! 7. `review` — read-only layout physics (pours, return path, cap vias).
 
 pub mod autoroute;
 pub mod builtins;
@@ -21,6 +22,7 @@ pub mod nets;
 pub mod outline;
 pub mod pads;
 pub mod place;
+pub mod review;
 pub mod proto_wire;
 pub mod silk;
 pub mod stitch;

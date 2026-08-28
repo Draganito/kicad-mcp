@@ -12,7 +12,7 @@ Cursor  --stdio MCP-->  kicad-mcp  --KiCad IPC-->  pcbnew (KiCad 10)
 
 ## Crates
 
-- `kicad-mcp` — MCP tools, IPC session, placement, nets, copper, silk, outline.
+- `kicad-mcp` — MCP tools, IPC session, placement, nets, copper, silk, review, outline.
 - `easyeda-kicad` — fetch an LCSC C-number and emit `.kicad_mod` /
   `.kicad_sym` / `{template}.pins.json` (Y-flip EasyEDA → KiCad).
   Pin names/functions are EasyEDA SVG names, not a manufacturer PDF.

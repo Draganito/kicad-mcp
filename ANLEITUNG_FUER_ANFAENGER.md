@@ -63,6 +63,7 @@ Danach typischer Ablauf:
 6. `add_text` / `add_texts` — Silk-Namen an Drahtpads (`5V`, `GND`,
    `DATA`) auf F.Silkscreen, nicht auf Kupfer
 7. `check_board` — bevor die KI „fertig“ sagt; nach Kupfer auch `check_drc`
+   und `review_board` (Pour / Rückweg / Elko-Via, kein DRC)
 8. `export_manufacturing` — Gerber-Zip + BOM + CPL für JLCPCB
    (Silk ohne U1/C3-Beschriftung — sonst DFM „Silkscreen to pad“)
 9. `save_board` — **nur wenn du es willst**

@@ -351,6 +351,16 @@ impl Kicad {
             .collect())
     }
 
+    pub async fn copper_zones(&self) -> Result<Vec<crate::copper::ZoneSnap>, String> {
+        let raw = self
+            .raw_items(vec![PcbObjectTypeCode::new_zone().code])
+            .await?;
+        Ok(raw
+            .into_iter()
+            .filter_map(|any| crate::copper::zone_snap_from_any(&any))
+            .collect())
+    }
+
     pub async fn zone_ids(&self) -> Result<Vec<String>, String> {
         let items = self
             .client

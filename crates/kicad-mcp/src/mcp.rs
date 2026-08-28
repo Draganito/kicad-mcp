@@ -187,6 +187,16 @@ impl KicadMcp {
     }
 
     #[tool(
+        description = "Short layout-physics review of the open board (reads only). Return path / GND pour, power pour, whether 5V and GND sit on adjacent layers, and a GND via within 3 mm of each decoupling-cap GND pad. Not DRC and not connectivity — those are check_drc and check_board. Does not flag 90° corners or silk overlap. Call after copper, before claiming the board is done. Report: ok, verdict, summary, findings[], not_checked[]."
+    )]
+    async fn review_board(&self) -> Result<CallToolResult, McpError> {
+        with_kicad(self, |k| async move {
+            crate::review::review_open_board(&k).await
+        })
+        .await
+    }
+
+    #[tool(
         description = "EasyEDA pin numbers and pin_name (electrical function) for a downloaded template. Source of truth for connect_many nets. Do not use a manufacturer datasheet unless a logic check shows the EasyEDA names cannot be right. Call after download_lcsc_part, or for an existing list_parts template. Builtins have pad numbers only."
     )]
     async fn get_part_pins(
@@ -1889,7 +1899,7 @@ impl ServerHandler for KicadMcp {
              Run it after placing or moving. render_board writes a PNG (kicad-cli pcb render) for visual checks \
              (no 3D bodies on EasyEDA parts). Copper: get_routing_scene then ripup_wire with segment_id. \
              autoroute_nets calls the Routing Tools CLI, reloads, and refills zones (no Ctrl+Z for that step). \
-             After copper, check_drc (kicad-cli) then check_board. \
+             After copper, check_drc (kicad-cli), check_board, then review_board (return path / pours / cap vias — not 90° corners). \
              Do not edit .kicad_pcb by hand. \
              export_manufacturing writes JLCPCB files: <stem>_gerbers.zip + _bom.csv + _cpl.csv (needs kicad-cli). \
              {write_note}"

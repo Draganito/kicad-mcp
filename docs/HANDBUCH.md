@@ -211,6 +211,8 @@ Polarität — GND vs. Rail vom Nachbarpad.
 - `autoroute_nets` — genannte Netze über die Plugin-CLI, dann Reload
   und Zonen-Refill
 - `check_drc` — `kicad-cli pcb drc` (Clearance, Silk, Löcher); speichert
+- `review_board` — liest nur: GND/Power-Pour, benachbarte Lagen, Via
+  am Elko-GND (3 mm). Kein DRC, keine 90°-Ecken. Vor „fertig“.
 
 ### Silk-Text
 
@@ -246,6 +248,7 @@ Keine parallelen Copper-Writes: KiCad `BeginCommit` verträgt das nicht.
 | `list_parts` | Lesen — Templates inkl. Builtins |
 | `get_part_pins` | Lesen — EasyEDA `number` + `pin_name` |
 | `check_board` | Lesen — Pads ohne Netz |
+| `review_board` | Lesen — kurzer Physik-Report (Pour, Rückweg, Elko-Via) |
 | `download_lcsc_part` | Schreiben — EasyEDA → Library + Pins |
 | `make_wire_pad` | Schreiben — parametrisches PTH-Drahtpad-Template |
 | `make_mounting_hole` | Schreiben — parametrisches NPTH-Loch-Template |
