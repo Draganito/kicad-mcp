@@ -206,6 +206,14 @@ rail from the companion pad.
   refill zones
 - `check_drc` — `kicad-cli pcb drc` (clearance, silk, holes); saves
 
+### Silk text
+
+`add_text` / `add_texts` (max 150, one undo) places board text on
+**F.Silkscreen** (default) or **B.Silkscreen**. Use it for connector
+names (`5V`, `GND`, `DATA`) next to wire pads. Never F.Cu, never the
+footprint Value (export already strips U1/C3). Size default 1.0 mm
+(min 0.8). `clear_board` deletes these labels.
+
 `autoroute_nets` runs the optional KiCad Routing Tools **CLI** (not the
 wx dialog). Needs `kicad-routing-tools-setup` and KiCad 10 via `kicad-10`.
 `nets` is required — never `*` / every net. GND/VSS are refused (pour a
@@ -239,9 +247,10 @@ KiCad `BeginCommit` races.
 | `place_matrix` | Write — grid |
 | `move_footprint` | Write — rigid move/rotate, nets stay, copper stays |
 | `remove_footprint` | Write |
-| `clear_board` | Write — parts + copper, outline stays |
+| `clear_board` | Write — parts + copper + silk text, outline stays |
 | `clear_zones` | Write — zones only |
 | `set_board_outline` | Write — Edge.Cuts |
+| `add_text` / `add_texts` | Write — silk label (F/B.Silkscreen) |
 | `connect_pins` / `connect_many` | Write — ratsnest (every same-number pad) |
 | `disconnect_pin` / `disconnect_many` | Write — pin back to unconnected |
 | `add_track` / `add_tracks` | Write — track |

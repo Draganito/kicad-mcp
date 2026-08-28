@@ -60,10 +60,12 @@ Danach typischer Ablauf:
    `disconnect_pin` (Pad wieder unconnected).
 5. `add_track` / `set_copper_zone` — Kupfer; oder `autoroute_nets`
    mit genannten Signalnetzen (nicht GND)
-6. `check_board` — bevor die KI „fertig“ sagt; nach Kupfer auch `check_drc`
-7. `export_manufacturing` — Gerber-Zip + BOM + CPL für JLCPCB
+6. `add_text` / `add_texts` — Silk-Namen an Drahtpads (`5V`, `GND`,
+   `DATA`) auf F.Silkscreen, nicht auf Kupfer
+7. `check_board` — bevor die KI „fertig“ sagt; nach Kupfer auch `check_drc`
+8. `export_manufacturing` — Gerber-Zip + BOM + CPL für JLCPCB
    (Silk ohne U1/C3-Beschriftung — sonst DFM „Silkscreen to pad“)
-8. `save_board` — **nur wenn du es willst**
+9. `save_board` — **nur wenn du es willst**
 
 Rückgängig in KiCad: **Ctrl+Z**. `.kicad_pcb` nicht von Hand editieren.
 

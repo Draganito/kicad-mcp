@@ -477,7 +477,7 @@ impl KicadMcp {
     }
 
     #[tool(
-        description = "Delete every footprint, track, via and zone on the open board (Edge.Cuts stays unless you set_board_outline with replace). One undo. Use this to start a board from scratch."
+        description = "Delete every footprint, track, via, zone and board silk text on the open board (Edge.Cuts stays unless you set_board_outline with replace). One undo. Use this to start a board from scratch."
     )]
     async fn clear_board(&self) -> Result<CallToolResult, McpError> {
         if let Some(refusal) = self.require_write() {
@@ -501,6 +501,7 @@ impl KicadMcp {
                 }
             }
             ids.extend(k.zone_ids().await?);
+            ids.extend(k.board_text_ids().await?);
             if ids.is_empty() {
                 return Ok(serde_json::json!({ "ok": true, "deleted": 0 }));
             }
@@ -518,6 +519,114 @@ impl KicadMcp {
             k.end_commit(session, "kicad-mcp clear board").await?;
             let _ = k.refresh().await;
             Ok(serde_json::json!({ "ok": true, "deleted": deleted }))
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Place one silkscreen label (board text, not a footprint Value). text + x_mm/y_mm in KiCad millimetres. layer is F.Silkscreen (default) or B.Silkscreen — never F.Cu. size_mm defaults to 1.0 (min 0.8). rotation_deg optional. Use for connector names (5V, GND, DATA). Not U1/C3 refdes — export_manufacturing already strips those. Ctrl+Z undoes."
+    )]
+    async fn add_text(
+        &self,
+        Parameters(args): Parameters<AddTextArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        if let Some(refusal) = self.require_write() {
+            return refusal;
+        }
+        with_kicad(self, move |k| async move {
+            let layer = crate::silk::parse_silk_layer(args.layer.as_deref())?;
+            let item = crate::silk::text_any(
+                &args.text,
+                args.x_mm,
+                args.y_mm,
+                args.layer.as_deref(),
+                args.size_mm,
+                args.rotation_deg,
+            )?;
+            let session = k.begin_commit().await?;
+            match k.create_items(vec![item]).await {
+                Ok(n) => {
+                    k.end_commit(session, &format!("kicad-mcp silk {}", args.text.trim()))
+                        .await?;
+                    let _ = k.refresh().await;
+                    Ok(serde_json::json!({
+                        "ok": true,
+                        "text": args.text.trim(),
+                        "x_mm": args.x_mm,
+                        "y_mm": args.y_mm,
+                        "layer": layer.name,
+                        "size_mm": args.size_mm.unwrap_or(1.0),
+                        "items_created": n,
+                    }))
+                }
+                Err(e) => {
+                    let _ = k.drop_commit(session).await;
+                    Err(e)
+                }
+            }
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Place many silkscreen labels in one undo (max 150). Each item is the same as add_text: {text, x_mm, y_mm, layer?, size_mm?, rotation_deg?}."
+    )]
+    async fn add_texts(
+        &self,
+        Parameters(args): Parameters<AddTextsArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        if let Some(refusal) = self.require_write() {
+            return refusal;
+        }
+        with_kicad(self, move |k| async move {
+            if args.texts.is_empty() {
+                return Err("add_texts needs at least one label".into());
+            }
+            if args.texts.len() > crate::silk::SILK_MAX {
+                return Err(format!(
+                    "add_texts max {} (got {})",
+                    crate::silk::SILK_MAX,
+                    args.texts.len()
+                ));
+            }
+            let mut items = Vec::with_capacity(args.texts.len());
+            let mut placed = Vec::with_capacity(args.texts.len());
+            for t in &args.texts {
+                let layer = crate::silk::parse_silk_layer(t.layer.as_deref())?;
+                items.push(crate::silk::text_any(
+                    &t.text,
+                    t.x_mm,
+                    t.y_mm,
+                    t.layer.as_deref(),
+                    t.size_mm,
+                    t.rotation_deg,
+                )?);
+                placed.push(serde_json::json!({
+                    "text": t.text.trim(),
+                    "x_mm": t.x_mm,
+                    "y_mm": t.y_mm,
+                    "layer": layer.name,
+                }));
+            }
+            let n_req = items.len();
+            let session = k.begin_commit().await?;
+            match k.create_items(items).await {
+                Ok(n) => {
+                    k.end_commit(session, &format!("kicad-mcp {n_req} silk labels"))
+                        .await?;
+                    let _ = k.refresh().await;
+                    Ok(serde_json::json!({
+                        "ok": true,
+                        "count": n_req,
+                        "items_created": n,
+                        "placed": placed,
+                    }))
+                }
+                Err(e) => {
+                    let _ = k.drop_commit(session).await;
+                    Err(e)
+                }
+            }
         })
         .await
     }
@@ -1597,6 +1706,24 @@ pub struct DisconnectManyArgs {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct AddTextArgs {
+    /// Label, e.g. `"5V"`, `"GND"`, `"DATA"`. Single line, max 80 characters.
+    pub text: String,
+    pub x_mm: f64,
+    pub y_mm: f64,
+    /// F.Silkscreen (default) or B.Silkscreen. Copper is refused.
+    pub layer: Option<String>,
+    /// Height in mm (default 1.0, min 0.8).
+    pub size_mm: Option<f64>,
+    pub rotation_deg: Option<f64>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct AddTextsArgs {
+    pub texts: Vec<AddTextArgs>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct AddTrackArgs {
     pub a_x_mm: f64,
     pub a_y_mm: f64,
@@ -1730,7 +1857,7 @@ async fn commit_disconnect(
 impl ServerHandler for KicadMcp {
     fn get_info(&self) -> ServerInfo {
         let write_note = if self.allow_ai_write {
-            "Write tools are ENABLED (--allow-ai-write): download_lcsc_part, make_wire_pad, make_mounting_hole, place_footprint, place_parts, place_matrix, move_footprint, remove_footprint, clear_board, clear_zones, set_board_outline, connect_pins, connect_many, disconnect_pin, disconnect_many, add_track, add_tracks, add_via, add_vias, stitch_via, set_copper_zone, set_copper_layers, autoroute_nets, ripup_wire, check_drc, render_board, save_board, export_manufacturing."
+            "Write tools are ENABLED (--allow-ai-write): download_lcsc_part, make_wire_pad, make_mounting_hole, place_footprint, place_parts, place_matrix, move_footprint, remove_footprint, clear_board, clear_zones, set_board_outline, add_text, add_texts, connect_pins, connect_many, disconnect_pin, disconnect_many, add_track, add_tracks, add_via, add_vias, stitch_via, set_copper_zone, set_copper_layers, autoroute_nets, ripup_wire, check_drc, render_board, save_board, export_manufacturing."
         } else {
             "Write tools are DISABLED. Relaunch with --allow-ai-write."
         };
@@ -1750,6 +1877,7 @@ impl ServerHandler for KicadMcp {
              The pink A4 frame is the drawing sheet, not the PCB. Board size is an Edge.Cuts rectangle \
              (set_board_outline); default origin is the sheet centre, not 0,0. Outline replace defaults to true. \
              Place on free F.CrtYd space inside the board; placement refuses courtyard overlap. \
+             add_text / add_texts place F.Silkscreen labels (5V/GND/DATA next to wire pads) — never F.Cu, never footprint Value. \
              Typical write path: clear_board, set_board_outline, place_parts or place_matrix, connect_many \
              (assigns every pad that shares a pin number, e.g. thermal pad 41), \
              disconnect_pin to put a pad back on unconnected after a mis-wire, \

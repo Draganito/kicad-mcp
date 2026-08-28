@@ -9,6 +9,7 @@
 //! 4. `connect_pins` sets `Pad.net` (UpdateItems); `disconnect_pin` clears it
 //!    back to unconnected. Tracks/vias/zones are CreateItems.
 //! 5. Copper: tracks, vias, stitch vias, then zones.
+//! 6. `silk` — F.Silkscreen / B.Silkscreen board text (connector labels).
 
 pub mod autoroute;
 pub mod builtins;
@@ -21,4 +22,5 @@ pub mod outline;
 pub mod pads;
 pub mod place;
 pub mod proto_wire;
+pub mod silk;
 pub mod stitch;

@@ -366,6 +366,26 @@ impl Kicad {
             .collect())
     }
 
+    /// Free board text and text boxes (not footprint Reference/Value fields).
+    pub async fn board_text_ids(&self) -> Result<Vec<String>, String> {
+        let items = self
+            .client
+            .get_items_by_type_codes(vec![
+                PcbObjectTypeCode::new_text().code,
+                PcbObjectTypeCode::new_textbox().code,
+            ])
+            .await
+            .map_err(fmt_err)?;
+        Ok(items
+            .into_iter()
+            .filter_map(|item| match item {
+                PcbItem::BoardText(t) => t.id,
+                PcbItem::BoardTextBox(t) => t.id,
+                _ => None,
+            })
+            .collect())
+    }
+
     pub async fn refill_all_zones(&self) -> Result<(), String> {
         self.client.refill_all_zones().await.map_err(fmt_err)
     }

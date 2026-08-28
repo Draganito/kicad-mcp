@@ -212,6 +212,14 @@ Polarität — GND vs. Rail vom Nachbarpad.
   und Zonen-Refill
 - `check_drc` — `kicad-cli pcb drc` (Clearance, Silk, Löcher); speichert
 
+### Silk-Text
+
+`add_text` / `add_texts` (max. 150, ein Undo) setzt Board-Text auf
+**F.Silkscreen** (Default) oder **B.Silkscreen**. Für Anschlussnamen
+(`5V`, `GND`, `DATA`) neben Drahtpads. Nie F.Cu, nie Footprint-Value
+(Export streicht U1/C3 bereits). Größe Default 1,0 mm (min. 0,8).
+`clear_board` löscht diese Labels mit.
+
 `autoroute_nets` startet die **CLI** des optionalen Plugins KiCad
 Routing Tools (nicht den wx-Dialog). Voraussetzung:
 `kicad-routing-tools-setup` und KiCad 10 über `kicad-10`.
@@ -246,9 +254,10 @@ Keine parallelen Copper-Writes: KiCad `BeginCommit` verträgt das nicht.
 | `place_matrix` | Schreiben — Raster |
 | `move_footprint` | Schreiben — starres Verschieben/Drehen, Netze bleiben, Kupfer bleibt |
 | `remove_footprint` | Schreiben |
-| `clear_board` | Schreiben — Teile + Kupfer, Umriss bleibt |
+| `clear_board` | Schreiben — Teile + Kupfer + Silk-Text, Umriss bleibt |
 | `clear_zones` | Schreiben — nur Zonen |
 | `set_board_outline` | Schreiben — Edge.Cuts |
+| `add_text` / `add_texts` | Schreiben — Silk-Label (F/B.Silkscreen) |
 | `connect_pins` / `connect_many` | Schreiben — Ratsnest (alle gleichnamigen Pads) |
 | `disconnect_pin` / `disconnect_many` | Schreiben — Pin wieder unconnected |
 | `add_track` / `add_tracks` | Schreiben — Leiterbahn |
