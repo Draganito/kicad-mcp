@@ -16,6 +16,13 @@ pub const WIRE_PAD_DEFAULT_PAD_MM: f64 = 2.5;
 pub const WIRE_PAD_DEFAULT_DRILL_MM: f64 = 1.5;
 /// Default mounting hole: M3 clearance = 3.2 mm NPTH.
 pub const MOUNTING_HOLE_DEFAULT_MM: f64 = 3.2;
+/// Extra diameter beyond the hole so a typical machine-screw head
+/// (M3 pan/cross ≈ 5.5–6 mm) plus tightening pressure sits on bare
+/// laminate, not on a copper pour. 3.2 + 4.3 = 7.5 mm — large enough
+/// for the head, small enough to keep 0.5 mm copper-to-edge on a
+/// hole that sits ~4.4 mm from Edge.Cuts.
+const MOUNTING_HOLE_HEAD_CLEAR_MM: f64 = 4.3;
+const KEEPOUT_SEGMENTS: usize = 32;
 
 /// JLCPCB capability limits (standard PCB service).
 const MIN_DRILL_MM: f64 = 0.3;
@@ -138,18 +145,39 @@ fn wire_pad_mod(name: &str, pad_mm: f64, drill_mm: f64) -> String {
     )
 }
 
-/// NPTH mounting hole footprint: `hole_mm` drill, no copper, courtyard 2× the
-/// hole (KiCad MountingHole convention).
+/// Copper-free diameter around a mounting hole (hole + screw-head margin).
+fn mounting_hole_keepout_mm(hole_mm: f64) -> f64 {
+    hole_mm + MOUNTING_HOLE_HEAD_CLEAR_MM
+}
+
+fn keepout_circle_pts(radius_mm: f64) -> String {
+    (0..KEEPOUT_SEGMENTS)
+        .map(|i| {
+            let a = (i as f64) * std::f64::consts::TAU / (KEEPOUT_SEGMENTS as f64);
+            format!(
+                "\t\t\t\t(xy {} {})",
+                fmt_coord(radius_mm * a.cos()),
+                fmt_coord(radius_mm * a.sin())
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// NPTH mounting hole: `hole_mm` drill, oversized copper-free pad + keepout
+/// so a typical screw head and tightening pressure do not sit on a pour.
+/// Courtyard matches the keepout diameter.
 fn mounting_hole_mod(name: &str, hole_mm: f64) -> String {
-    let cy = hole_mm;
+    let keepout = mounting_hole_keepout_mm(hole_mm);
+    let cy = keepout / 2.0;
     let text_y = cy + 0.3;
     format!(
         r#"(footprint "{name}"
 	(version 20240108)
 	(generator "kicad-mcp")
 	(layer "F.Cu")
-	(descr "Mounting hole, {hole}mm NPTH, no copper")
-	(tags "mounting hole NPTH")
+	(descr "Mounting hole, {hole}mm NPTH, {keepout}mm copper keepout for screw head")
+	(tags "mounting hole NPTH keepout")
 	(attr exclude_from_bom exclude_from_pos_files)
 	(fp_text reference "REF**" (at 0 {text_y} unlocked) (layer "F.SilkS")
 		(effects (font (size 1 1) (thickness 0.15)))
@@ -161,13 +189,31 @@ fn mounting_hole_mod(name: &str, hole_mm: f64) -> String {
 	(fp_line (start {cy} -{cy}) (end {cy} {cy}) (layer "F.CrtYd") (stroke (width 0.05) (type solid)))
 	(fp_line (start {cy} {cy}) (end -{cy} {cy}) (layer "F.CrtYd") (stroke (width 0.05) (type solid)))
 	(fp_line (start -{cy} {cy}) (end -{cy} -{cy}) (layer "F.CrtYd") (stroke (width 0.05) (type solid)))
-	(pad "" npth circle (at 0 0) (size {hole} {hole}) (drill {hole}) (layers "F&B.Cu" "*.Mask"))
+	(pad "" npth circle (at 0 0) (size {keepout} {keepout}) (drill {hole}) (layers "*.Cu" "*.Mask"))
+	(zone
+		(net 0)
+		(net_name "")
+		(layers "*.Cu")
+		(hatch edge 0.5)
+		(connect_pads (clearance 0))
+		(min_thickness 0.25)
+		(filled_areas_thickness no)
+		(keepout (tracks not_allowed) (vias not_allowed) (pads allowed) (copperpour not_allowed) (footprints allowed))
+		(fill (thermal_gap 0.5) (thermal_bridge_width 0.5))
+		(polygon
+			(pts
+{pts}
+			)
+		)
+	)
 )
 "#,
         name = name,
         hole = fmt_coord(hole_mm),
+        keepout = fmt_coord(keepout),
         cy = fmt_coord(cy),
         text_y = fmt_coord(text_y),
+        pts = keepout_circle_pts(cy),
     )
 }
 
@@ -202,8 +248,10 @@ mod tests {
         assert_eq!(pads.len(), 1);
         assert_eq!(pads[0].kind, place::ModPadKind::Npth);
         assert_eq!(pads[0].drill_mm, Some(3.2));
+        assert!((pads[0].width_mm - 7.5).abs() < 1e-6);
         let cy = place::parse_kicad_mod_courtyard(&body).unwrap();
-        assert!((cy.max_x - cy.min_x - 6.4).abs() < 1e-6);
+        assert!((cy.max_x - cy.min_x - 7.5).abs() < 1e-6);
+        assert!(body.contains("copperpour not_allowed"));
     }
 
     #[test]
@@ -269,8 +317,9 @@ mod tests {
         let pads = place::parse_kicad_mod_pads(&body).unwrap();
         assert_eq!(pads[0].kind, place::ModPadKind::Npth);
         assert_eq!(pads[0].drill_mm, Some(4.5));
+        assert!((pads[0].width_mm - 8.8).abs() < 1e-6);
         let cy = place::parse_kicad_mod_courtyard(&body).unwrap();
-        assert!((cy.max_x - cy.min_x - 9.0).abs() < 1e-6);
+        assert!((cy.max_x - cy.min_x - 8.8).abs() < 1e-6);
 
         assert!(make_mounting_hole(&dir, 0.2).is_err());
         assert!(make_mounting_hole(&dir, 7.0).is_err());

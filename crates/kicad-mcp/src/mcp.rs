@@ -278,7 +278,7 @@ impl KicadMcp {
     }
 
     #[tool(
-        description = "Generate an NPTH mounting hole template with any hole diameter (mm) and write it into jlcpcb_parts.pretty. Returns the template name for place_footprint (3.2 keeps the name MountingHole_M3_NPTH, e.g. 4.5 becomes MountingHole_4.5_NPTH). Courtyard is 2x the hole. Regenerating an existing size overwrites the file."
+        description = "Generate an NPTH mounting hole template with any hole diameter (mm) and write it into jlcpcb_parts.pretty. Returns the template name for place_footprint (3.2 keeps the name MountingHole_M3_NPTH, e.g. 4.5 becomes MountingHole_4.5_NPTH). Includes a 7.5 mm copper keepout on M3 (hole + 4.3 mm) so a typical screw head and tightening pressure sit on laminate, not on a pour. Courtyard matches the keepout. Regenerating an existing size overwrites the file."
     )]
     async fn make_mounting_hole(
         &self,
@@ -950,7 +950,7 @@ impl KicadMcp {
     }
 
     #[tool(
-        description = "Create a copper zone (pour) and refill. net is required (5V or GND). layer is F.Cu, In1.Cu, In2.Cu or B.Cu (default F.Cu). Pads connect solid unless thermal=true: then PTH pads get 1.2 mm thermal spokes (vias and SMD stay solid). Rectangle: origin+size. Polygon: points. Pads should already sit on that net via connect_pins. Ctrl+Z undoes."
+        description = "Create a copper zone (pour) and refill. net is required (5V or GND). layer is F.Cu, In1.Cu, In2.Cu or B.Cu (default F.Cu). Pads connect solid by default. thermal=true: PTH pads get 1.2 mm spokes (vias and SMD stay solid). thermal_smd=true: SMD and PTH get 0.4 mm spokes (LED/cap GND on an F.Cu pour; vias stay solid). remove_islands=true: drop disconnected slivers (isolated_copper between LED pads). Default keeps islands. Rectangle: origin+size. Polygon: points. Pads should already sit on that net via connect_pins. Ctrl+Z undoes."
     )]
     async fn set_copper_zone(
         &self,
@@ -961,7 +961,10 @@ impl KicadMcp {
         }
         with_kicad(self, move |k| async move {
             let layer = crate::copper::parse_copper_layer(args.layer.as_deref())?;
-            let thermal = args.thermal.unwrap_or(false);
+            let pads = crate::copper::zone_pad_connect_from_flags(
+                args.thermal.unwrap_or(false),
+                args.thermal_smd.unwrap_or(false),
+            );
             let poly: Vec<(f64, f64)> = args
                 .points
                 .as_ref()
@@ -976,7 +979,8 @@ impl KicadMcp {
                     &args.net,
                     args.name.as_deref(),
                     net_code,
-                    thermal,
+                    pads,
+                    args.remove_islands.unwrap_or(false),
                 )?
             } else {
                 let ox = args
@@ -1000,7 +1004,8 @@ impl KicadMcp {
                     &args.net,
                     args.name.as_deref(),
                     net_code,
-                    thermal,
+                    pads,
+                    args.remove_islands.unwrap_or(false),
                 )?
             };
             let session = k.begin_commit().await?;
@@ -1023,6 +1028,9 @@ impl KicadMcp {
                         "height_mm": args.height_mm,
                         "items_created": n,
                         "refilled": true,
+                        "thermal": args.thermal.unwrap_or(false),
+                        "thermal_smd": args.thermal_smd.unwrap_or(false),
+                        "remove_islands": args.remove_islands.unwrap_or(false),
                     }))
                 }
                 Err(e) => {
@@ -1641,8 +1649,12 @@ pub struct SetZoneArgs {
     pub layer: Option<String>,
     pub name: Option<String>,
     pub points: Option<Vec<OutlinePoint>>,
-    /// Thermal spokes instead of solid pad connection. Default false (solid).
+    /// PTH thermal spokes (1.2 mm). Vias and SMD stay solid. Default false.
     pub thermal: Option<bool>,
+    /// SMD + PTH thermal spokes (0.4 mm / 0.3 mm gap). For LED/cap GND on an F.Cu pour. Vias stay solid. Wins over `thermal`.
+    pub thermal_smd: Option<bool>,
+    /// Drop disconnected copper slivers (`isolated_copper`). Default false (keep islands).
+    pub remove_islands: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]

@@ -487,7 +487,7 @@ fn pad_any(pad: &ModPad) -> Any {
         ModPadKind::SmdFront => (PT_SMD, vec![BL_F_CU, BL_F_PASTE, BL_F_MASK]),
         ModPadKind::SmdBack => (PT_SMD, vec![BL_B_CU, BL_B_PASTE, BL_B_MASK]),
         ModPadKind::ThruHole => (PT_PTH, vec![BL_F_CU, BL_B_CU, BL_F_MASK, BL_B_MASK]),
-        ModPadKind::Npth => (PT_NPTH, vec![BL_F_CU, BL_B_CU]),
+        ModPadKind::Npth => (PT_NPTH, vec![BL_F_CU, BL_B_CU, BL_F_MASK, BL_B_MASK]),
     };
     let shape = match pad.shape {
         ModPadShape::Circle => PSS_CIRCLE,

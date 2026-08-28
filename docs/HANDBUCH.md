@@ -205,7 +205,7 @@ Polarität — GND vs. Rail vom Nachbarpad.
   eines Netzes (`net: "GND"`)
 - `set_copper_layers` — Kupferlagen 2/4/6/8 (nicht undo-bar)
 - `set_copper_zone` — Rechteck oder Polygon; Netz z. B. `5V` / `GND`;
-  Lage `F.Cu` / `In1.Cu` / `In2.Cu` / `B.Cu`; Pads solid, `thermal=true` für Speichen; danach Refill
+  Lage `F.Cu` / `In1.Cu` / `In2.Cu` / `B.Cu`; Pads solid; `thermal=true` PTH-Speichen; `thermal_smd=true` auch SMD (LED/Elko); `remove_islands=true` tote Kupferinseln weg; danach Refill
 - `clear_zones` — alle Kupferzonen löschen (Bahnen bleiben)
 - `ripup_wire` — `segment_id` aus `get_routing_scene`
 - `autoroute_nets` — genannte Netze über die Plugin-CLI, dann Reload

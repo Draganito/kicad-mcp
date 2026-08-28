@@ -199,7 +199,7 @@ rail from the companion pad.
   a net (`net: "GND"`)
 - `set_copper_layers` — copper count 2/4/6/8 (not undoable)
 - `set_copper_zone` — rectangle or polygon; net e.g. `5V` / `GND`;
-  layer `F.Cu` / `In1.Cu` / `In2.Cu` / `B.Cu`; pads solid unless `thermal=true`; then refill
+  layer `F.Cu` / `In1.Cu` / `In2.Cu` / `B.Cu`; pads solid unless `thermal=true` (PTH) or `thermal_smd=true` (SMD+PTH); `remove_islands=true` drops isolated slivers; then refill
 - `clear_zones` — delete copper zones (tracks stay)
 - `ripup_wire` — `segment_id` from `get_routing_scene`
 - `autoroute_nets` — named nets via the plugin CLI, then reload and

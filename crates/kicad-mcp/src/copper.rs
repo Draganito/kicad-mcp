@@ -14,13 +14,30 @@ const VT_THROUGH: i32 = 1;
 const PST_FRONT_INNER_BACK: i32 = 2;
 const ZT_COPPER: i32 = 1;
 const ZFM_SOLID: i32 = 1;
+/// KiCad `IslandRemovalMode`: drop disconnected slivers (F.Cu pour between LED pads).
+const IRM_ALWAYS: i32 = 1;
 const IRM_NEVER: i32 = 2;
+/// KiCad `ZoneConnectionStyle`: thermal relief on SMD and PTH pads.
+const ZCS_THERMAL: i32 = 3;
 const ZCS_FULL: i32 = 4;
 const ZCS_PTH_THERMAL: i32 = 5;
 /// PTH wire-pad thermals (hand-solder). 4 × 1.2 mm on inner 1 oz ≈ 7 A at 20 °C.
 /// Vias and SMD stay solid (`ZCS_PTH_THERMAL`).
 const PTH_SPOKE_NM: i64 = 1_200_000;
 const THERMAL_GAP_NM: i64 = 500_000;
+/// SMD thermals on a pour (SK6812 / 0603). Narrower than PTH so four spokes fit.
+const SMD_SPOKE_NM: i64 = 400_000;
+const SMD_GAP_NM: i64 = 300_000;
+
+/// How pads attach to a copper zone.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ZonePadConnect {
+    Solid,
+    /// PTH only (`ZCS_PTH_THERMAL`). SMD and vias stay solid.
+    PthThermal,
+    /// SMD and PTH (`ZCS_THERMAL`). Vias stay solid.
+    AllThermal,
+}
 
 const TYPE_TRACK: &str = "type.googleapis.com/kiapi.board.types.Track";
 const TYPE_VIA: &str = "type.googleapis.com/kiapi.board.types.Via";
@@ -256,6 +273,7 @@ pub fn rect_zone_any(
         net,
         name,
         0,
+        ZonePadConnect::Solid,
         false,
     )
 }
@@ -269,7 +287,8 @@ pub fn rect_zone_any_coded(
     net: &str,
     name: Option<&str>,
     net_code: i32,
-    thermal: bool,
+    pads: ZonePadConnect,
+    remove_islands: bool,
 ) -> Result<Any, String> {
     if net.trim().is_empty() {
         return Err("set_copper_zone needs a net name (connect_pins first)".into());
@@ -287,7 +306,8 @@ pub fn rect_zone_any_coded(
         net,
         name,
         net_code,
-        thermal,
+        pads,
+        remove_islands,
     )
 }
 
@@ -314,7 +334,7 @@ pub fn poly_zone_mm(
         .iter()
         .map(|(x, y)| (mm_to_nm(*x), mm_to_nm(*y)))
         .collect();
-    poly_zone_any(&nm, layer, net, name, 0, false)
+    poly_zone_any(&nm, layer, net, name, 0, ZonePadConnect::Solid, false)
 }
 
 pub fn poly_zone_mm_coded(
@@ -324,7 +344,15 @@ pub fn poly_zone_mm_coded(
     name: Option<&str>,
     net_code: i32,
 ) -> Result<Any, String> {
-    poly_zone_mm_ex(points_mm, layer, net, name, net_code, false)
+    poly_zone_mm_ex(
+        points_mm,
+        layer,
+        net,
+        name,
+        net_code,
+        ZonePadConnect::Solid,
+        false,
+    )
 }
 
 pub fn poly_zone_mm_ex(
@@ -333,7 +361,8 @@ pub fn poly_zone_mm_ex(
     net: &str,
     name: Option<&str>,
     net_code: i32,
-    thermal: bool,
+    pads: ZonePadConnect,
+    remove_islands: bool,
 ) -> Result<Any, String> {
     if net.trim().is_empty() {
         return Err("set_copper_zone needs a net name (connect_pins first)".into());
@@ -351,7 +380,7 @@ pub fn poly_zone_mm_ex(
         .iter()
         .map(|(x, y)| (mm_to_nm(*x), mm_to_nm(*y)))
         .collect();
-    poly_zone_any(&nm, layer, net, name, net_code, thermal)
+    poly_zone_any(&nm, layer, net, name, net_code, pads, remove_islands)
 }
 
 fn poly_zone_any(
@@ -360,7 +389,8 @@ fn poly_zone_any(
     net: &str,
     name: Option<&str>,
     net_code: i32,
-    thermal: bool,
+    pads: ZonePadConnect,
+    remove_islands: bool,
 ) -> Result<Any, String> {
     let nodes = corners_nm
         .iter()
@@ -386,14 +416,14 @@ fn poly_zone_any(
         name: name.unwrap_or(net).to_string(),
         locked: LS_UNLOCKED,
         settings: Some(zone::Settings::CopperSettings(CopperZoneSettings {
-            connection: zone_pad_connection(net, thermal),
+            connection: zone_pad_connection(net, pads),
             clearance: Some(Distance {
                 value_nm: ZONE_CLEARANCE_NM,
             }),
             min_thickness: Some(Distance {
                 value_nm: ZONE_MIN_THICKNESS_NM,
             }),
-            island_mode: IRM_NEVER,
+            island_mode: zone_island_mode(remove_islands),
             fill_mode: ZFM_SOLID,
             net: Some(net_msg(net, net_code)),
         })),
@@ -401,31 +431,57 @@ fn poly_zone_any(
     Ok(pack(&zone, TYPE_ZONE))
 }
 
-fn zone_pad_connection(net: &str, thermal: bool) -> Option<ZoneConnectionSettings> {
-    if !thermal {
-        return Some(ZoneConnectionSettings {
+fn zone_pad_connection(net: &str, pads: ZonePadConnect) -> Option<ZoneConnectionSettings> {
+    let power = matches!(net, "5V" | "GND");
+    let mode = if power { pads } else { ZonePadConnect::Solid };
+    match mode {
+        ZonePadConnect::Solid => Some(ZoneConnectionSettings {
             zone_connection: ZCS_FULL,
             thermal_spokes: None,
-        });
-    }
-    let spoke_nm = match net {
-        "5V" | "GND" => PTH_SPOKE_NM,
-        _ => {
-            return Some(ZoneConnectionSettings {
-                zone_connection: ZCS_FULL,
-                thermal_spokes: None,
-            })
-        }
-    };
-    Some(ZoneConnectionSettings {
-        zone_connection: ZCS_PTH_THERMAL,
-        thermal_spokes: Some(ThermalSpokeSettings {
-            width: Some(Distance { value_nm: spoke_nm }),
-            gap: Some(Distance {
-                value_nm: THERMAL_GAP_NM,
+        }),
+        ZonePadConnect::PthThermal => Some(ZoneConnectionSettings {
+            zone_connection: ZCS_PTH_THERMAL,
+            thermal_spokes: Some(ThermalSpokeSettings {
+                width: Some(Distance {
+                    value_nm: PTH_SPOKE_NM,
+                }),
+                gap: Some(Distance {
+                    value_nm: THERMAL_GAP_NM,
+                }),
             }),
         }),
-    })
+        ZonePadConnect::AllThermal => Some(ZoneConnectionSettings {
+            zone_connection: ZCS_THERMAL,
+            thermal_spokes: Some(ThermalSpokeSettings {
+                width: Some(Distance {
+                    value_nm: SMD_SPOKE_NM,
+                }),
+                gap: Some(Distance {
+                    value_nm: SMD_GAP_NM,
+                }),
+            }),
+        }),
+    }
+}
+
+/// KiCad island policy. Default keeps slivers (`IRM_NEVER`); `true` drops them.
+pub fn zone_island_mode(remove_islands: bool) -> i32 {
+    if remove_islands {
+        IRM_ALWAYS
+    } else {
+        IRM_NEVER
+    }
+}
+
+/// Map MCP flags onto pad-connect mode. `thermal_smd` wins over PTH-only.
+pub fn zone_pad_connect_from_flags(thermal: bool, thermal_smd: bool) -> ZonePadConnect {
+    if thermal_smd {
+        ZonePadConnect::AllThermal
+    } else if thermal {
+        ZonePadConnect::PthThermal
+    } else {
+        ZonePadConnect::Solid
+    }
 }
 
 fn net_msg(name: &str, code: i32) -> Net {
@@ -678,12 +734,24 @@ mod tests {
         let conn = s.connection.expect("5V zone must set pad connection");
         assert_eq!(conn.zone_connection, ZCS_FULL);
         assert!(conn.thermal_spokes.is_none());
+        assert_eq!(s.island_mode, IRM_NEVER);
     }
 
     #[test]
     fn fivev_zone_can_request_pth_thermal() {
-        let any =
-            rect_zone_any_coded(0.0, 0.0, 40.0, 30.0, BL_F_CU, "5V", None, 0, true).unwrap();
+        let any = rect_zone_any_coded(
+            0.0,
+            0.0,
+            40.0,
+            30.0,
+            BL_F_CU,
+            "5V",
+            None,
+            0,
+            ZonePadConnect::PthThermal,
+            false,
+        )
+        .unwrap();
         let z = Zone::decode(any.value.as_slice()).unwrap();
         let Some(zone::Settings::CopperSettings(s)) = z.settings else {
             panic!("expected copper settings");
@@ -697,8 +765,19 @@ mod tests {
 
     #[test]
     fn gnd_zone_can_request_pth_thermal() {
-        let any =
-            rect_zone_any_coded(0.0, 0.0, 40.0, 30.0, BL_B_CU, "GND", None, 0, true).unwrap();
+        let any = rect_zone_any_coded(
+            0.0,
+            0.0,
+            40.0,
+            30.0,
+            BL_B_CU,
+            "GND",
+            None,
+            0,
+            ZonePadConnect::PthThermal,
+            false,
+        )
+        .unwrap();
         let z = Zone::decode(any.value.as_slice()).unwrap();
         let Some(zone::Settings::CopperSettings(s)) = z.settings else {
             panic!("expected copper settings");
@@ -708,6 +787,76 @@ mod tests {
         let spokes = conn.thermal_spokes.expect("thermal spokes");
         assert_eq!(spokes.width.unwrap().value_nm, PTH_SPOKE_NM);
         assert_eq!(spokes.gap.unwrap().value_nm, THERMAL_GAP_NM);
+    }
+
+    #[test]
+    fn gnd_zone_can_request_smd_thermal() {
+        let any = rect_zone_any_coded(
+            0.0,
+            0.0,
+            40.0,
+            30.0,
+            BL_F_CU,
+            "GND",
+            None,
+            0,
+            ZonePadConnect::AllThermal,
+            false,
+        )
+        .unwrap();
+        let z = Zone::decode(any.value.as_slice()).unwrap();
+        let Some(zone::Settings::CopperSettings(s)) = z.settings else {
+            panic!("expected copper settings");
+        };
+        let conn = s.connection.expect("GND zone must set pad connection");
+        assert_eq!(conn.zone_connection, ZCS_THERMAL);
+        let spokes = conn.thermal_spokes.expect("thermal spokes");
+        assert_eq!(spokes.width.unwrap().value_nm, SMD_SPOKE_NM);
+        assert_eq!(spokes.gap.unwrap().value_nm, SMD_GAP_NM);
+    }
+
+    #[test]
+    fn thermal_smd_flag_wins_over_pth() {
+        assert_eq!(
+            zone_pad_connect_from_flags(true, true),
+            ZonePadConnect::AllThermal
+        );
+        assert_eq!(
+            zone_pad_connect_from_flags(true, false),
+            ZonePadConnect::PthThermal
+        );
+        assert_eq!(
+            zone_pad_connect_from_flags(false, true),
+            ZonePadConnect::AllThermal
+        );
+        assert_eq!(
+            zone_pad_connect_from_flags(false, false),
+            ZonePadConnect::Solid
+        );
+    }
+
+    #[test]
+    fn remove_islands_sets_irm_always() {
+        assert_eq!(zone_island_mode(false), IRM_NEVER);
+        assert_eq!(zone_island_mode(true), IRM_ALWAYS);
+        let any = rect_zone_any_coded(
+            0.0,
+            0.0,
+            40.0,
+            30.0,
+            BL_F_CU,
+            "GND",
+            None,
+            0,
+            ZonePadConnect::AllThermal,
+            true,
+        )
+        .unwrap();
+        let z = Zone::decode(any.value.as_slice()).unwrap();
+        let Some(zone::Settings::CopperSettings(s)) = z.settings else {
+            panic!("expected copper settings");
+        };
+        assert_eq!(s.island_mode, IRM_ALWAYS);
     }
 
     #[test]
