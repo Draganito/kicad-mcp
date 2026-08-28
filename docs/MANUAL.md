@@ -1,9 +1,10 @@
 # kicad-mcp — Manual
 
-Complete A-to-Z reference, v0.1.0.
-German: [HANDBUCH.md](HANDBUCH.md).
-Fresh Debian + Cursor: [INSTALL_DEBIAN.en.md](INSTALL_DEBIAN.en.md).
-Short German starter: [ANLEITUNG_FUER_ANFAENGER.md](../ANLEITUNG_FUER_ANFAENGER.md).
+A-to-Z reference. Start with
+[Getting started](GETTING_STARTED.md) if you are new.
+German: [HANDBUCH.md](HANDBUCH.md) ·
+[Einstieg](../ANLEITUNG_FUER_ANFAENGER.md).
+Debian install: [INSTALL_DEBIAN.en.md](INSTALL_DEBIAN.en.md).
 
 ---
 
@@ -27,10 +28,13 @@ Short German starter: [ANLEITUNG_FUER_ANFAENGER.md](../ANLEITUNG_FUER_ANFAENGER.
 
 ## 1. What it is
 
-kicad-mcp is a **stdio MCP server** for Cursor. It drives a **running
-KiCad PCB editor** over the official IPC API. KiCad remains the editor;
-this is not a second layout program. `autoroute_nets` can run the
-companion CLI for named nets.
+You keep KiCad open. From Cursor an assistant lays out the board in
+the editor you already see. KiCad stays the source of truth; this is
+not a second layout program.
+
+Technically: a **stdio MCP server** that drives the **PCB editor**
+over the official IPC API. `autoroute_nets` can run the companion CLI
+for named nets.
 
 JLCPCB footprints come from **EasyEDA / LCSC** (`download_lcsc_part`).
 Wire pads and mounting holes are generated parametrically:

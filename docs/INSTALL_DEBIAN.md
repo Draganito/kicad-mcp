@@ -1,8 +1,10 @@
 # Neuinstallation auf Debian + Cursor
 
-Eine frische Debian-Maschine (x86-64, z. B. Debian 13) bis zu
-KiCad 10, kicad-mcp und dem optionalen Autorouter. Nachschlagewerk:
-[HANDBUCH.md](HANDBUCH.md). English: [INSTALL_DEBIAN.en.md](INSTALL_DEBIAN.en.md).
+Schritt für Schritt von einer leeren Debian-Maschine (x86-64, z. B.
+Debian 13) bis zur ersten Frage in Cursor. Wenn du das Paket schon
+hast: [Einstieg für Maker](../ANLEITUNG_FUER_ANFAENGER.md).
+Nachschlagewerk: [HANDBUCH.md](HANDBUCH.md).
+English: [INSTALL_DEBIAN.en.md](INSTALL_DEBIAN.en.md).
 
 Die zwei `.deb` liegen auf derselben
 [Releases-Seite](https://github.com/Draganito/kicad-mcp/releases).

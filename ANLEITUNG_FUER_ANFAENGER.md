@@ -1,91 +1,126 @@
-# kicad-mcp — Einstieg für Anfänger
+# kicad-mcp — Einstieg für Maker
 
-In 15 Minuten von der `.deb` bis zur ersten Platine in KiCad, gesteuert
-aus Cursor. Komplette Neuinstallation (AppImage + beide Debs + Cursor):
+Du lässt **KiCad** offen. In **Cursor** sagst du, was auf die Platine
+soll. Die KI setzt Teile, vergibt Netze, gießt Kupfer und schreibt den
+JLCPCB-Zip — auf der Platine, die du schon siehst.
+
+Kein zweiter Editor. Kein „Chat, erfinde eine `.kicad_pcb`“.
+Rückgängig ist immer **Ctrl+Z** in KiCad. Speichern nur, wenn du es
+willst.
+
+Eine 4-Lagen-LED-Platine (109 SK6812) ist so entstanden und bei
+JLCPCB bestellt worden.
+
+Englisch: [README](README.md) · [Getting started](docs/GETTING_STARTED.md)
+
+Komplette Neuinstallation (AppImage, Debs, Cursor):
 [docs/INSTALL_DEBIAN.md](docs/INSTALL_DEBIAN.md).
 Nachschlagewerk: [docs/HANDBUCH.md](docs/HANDBUCH.md).
 
-## 1. KiCad
+---
 
-1. **KiCad 10** starten — auf Debian immer `kicad-10` (liegt nach der
-   `.deb` in `/usr/bin/kicad-10`), nicht das System-KiCad 9 und nicht
-   die `.AppImage` direkt. Download: [docs/INSTALL_DEBIAN.md](docs/INSTALL_DEBIAN.md).
-2. **PCB-Editor** öffnen (eine leere Platine reicht).
-3. **Preferences → Plugins → Enable IPC API** einschalten.
-4. KiCad **neu starten**, PCB-Editor wieder öffnen.
+## Für wen
 
-Ohne diesen Haken kann kicad-mcp KiCad nicht erreichen.
-`board_summary` muss `10.0.x` und `net_ipc_persists: true` zeigen.
+Hobby, Studium, eine LED-Matrix, Drahtpads, eine GND-Fläche, Dateien
+die JLCPCB schluckt.
 
-## 2. Pakete installieren
+Die Schaltung bleibt deine. Pinnamen kommen von LCSC/EasyEDA, nicht
+aus dem Gedächtnis der KI.
+
+Nicht gedacht für Altium, nur-Windows, oder wenn du keine KI im
+Editor willst.
+
+---
+
+## 1. KiCad 10
+
+Auf Debian immer **`kicad-10`** starten (liegt nach der `.deb` in
+`/usr/bin/kicad-10`). Nicht das System-KiCad 9, nicht die `.AppImage`
+doppelklicken.
+
+1. **PCB-Editor** öffnen (eine leere Platine reicht).
+2. **Einstellungen → Plugins → IPC-API aktivieren**.
+3. KiCad **ganz zu**, wieder `kicad-10`, PCB-Editor erneut öffnen.
+
+Ohne den Haken findet die KI KiCad nicht.
+
+---
+
+## 2. Paket
 
 Von der [Releases-Seite](https://github.com/Draganito/kicad-mcp/releases)
-beide Dateien laden:
+`kicad-mcp_*.deb` laden:
 
 ```bash
-sudo apt install ./kicad-mcp_<version>_amd64.deb ./kicad-routing-tools_0.20.4-2_amd64.deb
-kicad-routing-tools-setup
+sudo apt install ./kicad-mcp_*_amd64.deb
 ```
 
-`kicad-routing-tools` ist optional (Autorouter in Pcbnew). Setup als
-normaler User, nicht als root. MCP und Plugin rufen sich nicht auf.
+Der Autorouter (`kicad-routing-tools_*.deb`) ist **optional**. Nur wenn
+du ihn willst: mitinstallieren, dann einmal `kicad-routing-tools-setup`
+als normaler User. MCP und Plugin rufen sich nicht auf.
 
-## 3. Cursor anbinden
+---
 
-Den **Inhalt** von `/usr/share/kicad-mcp/cursor-setup/` in den Ordner
-kopieren, den du in Cursor öffnest — also `.cursor/` **und**
-`.cursorignore`:
+## 3. Cursor
+
+Inhalt der Vorlage in den Ordner kopieren, den du in Cursor öffnest
+(`.cursor/` **und** `.cursorignore`):
 
 ```bash
-cp -a /usr/share/kicad-mcp/cursor-setup/.cursor /usr/share/kicad-mcp/cursor-setup/.cursorignore .
+cp -a /usr/share/kicad-mcp/cursor-setup/.cursor \
+      /usr/share/kicad-mcp/cursor-setup/.cursorignore .
 ```
 
-Cursor neu laden bzw. den MCP-Server `kicad-mcp` einmal aus- und
-einschalten. `mcp.json` startet `/usr/bin/kicad-mcp --allow-ai-write`.
+Cursor: MCP-Server `kicad-mcp` einmal aus- und einschalten.
 
-## 4. Erster Check
+---
 
-In Cursor die KI bitten: *„board_summary aufrufen“*. Antwort sollte
-KiCad-Version, Projektpfad und `has_open_board: true` enthalten.
+## 4. Erster Satz
 
-Danach typischer Ablauf:
+KiCad läuft, Platine offen, Cursor auf dem Ordner:
 
-1. `set_board_outline` — Rechteck oder Polygon auf Edge.Cuts
-2. `download_lcsc_part` — LCSC-C-Nummer (z. B. C14663); Antwort enthält
-   EasyEDA-Pins (`number` + `pin_name`). Schon geladen:
-   `get_part_pins`. Netze danach, Datenblatt nur wenn EasyEDA logisch
-   nicht stimmen kann.
-3. `place_footprint` / `place_parts` / `place_matrix`
-4. `connect_many` — Netze (Ratsnest). Falsch verdrahtet:
-   `disconnect_pin` (Pad wieder unconnected).
-5. `add_track` / `set_copper_zone` — Kupfer; oder `autoroute_nets`
-   mit genannten Signalnetzen (nicht GND)
-6. `add_text` / `add_texts` — Silk-Namen an Drahtpads (`5V`, `GND`,
-   `DATA`) auf F.Silkscreen, nicht auf Kupfer
-7. `check_board` — bevor die KI „fertig“ sagt; nach Kupfer auch `check_drc`
-   und `review_board` (Pour / Rückweg / Elko-Via, kein DRC)
-8. `export_manufacturing` — Gerber-Zip + BOM + CPL für JLCPCB
-   (Silk ohne U1/C3-Beschriftung — sonst DFM „Silkscreen to pad“)
-9. `save_board` — **nur wenn du es willst**
+> Rufe `board_summary` auf.
 
-Rückgängig in KiCad: **Ctrl+Z**. `.kicad_pcb` nicht von Hand editieren.
+Du willst **10.x**, `has_open_board: true` und
+`net_ipc_persists: true`. Steht dort 9.x: falsches KiCad — `kicad-10`.
 
-## Koordinaten
+Dann zum Beispiel:
 
-Millimeter, KiCad-Ursprung, **+x rechts, +y oben**. Der rosa A4-Rahmen
-ist nur das Zeichenblatt. Die Platine ist das gelbe **Edge.Cuts**.
-Ohne Origin liegt ein Rechteck-Umriss in der Blattmitte, nicht bei 0,0.
+> Mach eine Platine 40 × 30 mm. Lade C14663. Setz einen Elko in die
+> Mitte. Noch nicht speichern.
+
+---
+
+## So entsteht eine Platine
+
+1. **Umriss** — das gelbe Edge.Cuts *ist* die Platine. Der rosa
+   A4-Rahmen ist nur das Zeichenblatt.
+2. **Teile** — LCSC-C-Nummer laden, dann setzen oder ein Raster.
+3. **Netze** — erst nur Ratsnest (Luftlinien). Kupfer kommt danach.
+4. **Kupfer** — Bahnen, Vias, bei Bedarf 4 Lagen, GND/5V als Fläche.
+5. **Silk** — `5V` / `GND` / `DATA` neben die Drahtpads, nicht aufs
+   Kupfer.
+6. **Prüfen** — leere Pads, DRC, kurzer Physik-Report
+   (`review_board`).
+7. **Bestellen** — Gerber-Zip + BOM + Bestückung für JLCPCB.
+   Silk ohne U1/C3 (sonst meckert JLCPCB).
+
+Millimeter, **+x rechts, +y oben**. `.kicad_pcb` nicht von Hand
+editieren.
+
+Die Werkzeugnamen stehen im [Handbuch](docs/HANDBUCH.md), nicht in
+jedem Chat.
+
+---
 
 ## Wenn etwas hakt
 
 | Symptom | Typische Ursache |
 | --- | --- |
-| MCP verbindet nicht | IPC API aus, oder PCB-Editor nicht offen |
-| Write-Tools lehnen ab | `--allow-ai-write` fehlt in `mcp.json` |
-| Teile sitzen in der Blatt-Ecke | Pad-Koordinaten nicht gebacken — Bug, nicht du |
-| Netze leer / `net_ipc_persists: false` | System-KiCad 9 statt `kicad-10` |
-| AppImage 10, kein Socket | `.AppImage` direkt gestartet statt `kicad-10` |
-| Plugin: encodings / pip fail | `kicad-routing-tools-setup` als User, nicht pip in KiCad |
-| Altes Edge.Cuts bleibt | `replace` muss true sein (Default); MCP neu laden nach einem Update |
+| MCP verbindet nicht | IPC-API aus, oder PCB-Editor nicht offen |
+| Version 9 / Netze leer | System-KiCad 9 statt `kicad-10` |
+| Write-Tools lehnen ab | Vorlage nicht kopiert (`--allow-ai-write`) |
+| Teile in der Blatt-Ecke | Bug in den Pad-Koordinaten — nicht du |
+| AppImage, kein Socket | `.AppImage` direkt gestartet statt `kicad-10` |
 
-Mehr: [docs/HANDBUCH.md](docs/HANDBUCH.md) Kapitel „Probleme lösen“.
+Mehr: [Handbuch](docs/HANDBUCH.md) → „Probleme lösen“.

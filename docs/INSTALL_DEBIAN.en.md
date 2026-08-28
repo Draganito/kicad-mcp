@@ -1,7 +1,9 @@
 # Fresh install on Debian + Cursor
 
-A clean Debian machine (x86-64, e.g. Debian 13) through KiCad 10,
-kicad-mcp, and the optional autorouter. Reference: [MANUAL.md](MANUAL.md).
+A clean Debian machine (x86-64, e.g. Debian 13) through to the first
+question in Cursor. If the package is already installed:
+[Getting started](GETTING_STARTED.md).
+Reference: [MANUAL.md](MANUAL.md).
 German: [INSTALL_DEBIAN.md](INSTALL_DEBIAN.md).
 
 Both `.deb` files sit on the same

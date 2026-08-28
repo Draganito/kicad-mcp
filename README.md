@@ -1,144 +1,152 @@
 # kicad-mcp
 
-Mini MCP server that drives a **running KiCad PCB editor** from Cursor
-over KiCad's official IPC API. Parts come from **EasyEDA / LCSC** so
-JLCPCB footprints match. Not a second PCB editor. Named-net autoroute
-is optional (`autoroute_nets`, companion Routing Tools deb).
+You keep **KiCad** open. In **Cursor** you tell an assistant what the
+board should be. It places parts, assigns nets, pours copper, and
+writes the JLCPCB zip — on the board you already see.
 
-**License: [AGPL-3.0-only](LICENSE)** — Copyright © 2026 Dragan Bojovic.
-See [NOTICE](NOTICE).
+This is not a second PCB editor and not “chat, invent a `.kicad_pcb`”.
+KiCad stays the source of truth. Every change is **Ctrl+Z**.
 
-Deutsche Einstiegsanleitung: [ANLEITUNG_FUER_ANFAENGER.md](ANLEITUNG_FUER_ANFAENGER.md).
-Neuinstallation Debian + Cursor: [docs/INSTALL_DEBIAN.md](docs/INSTALL_DEBIAN.md)
-/ [docs/INSTALL_DEBIAN.en.md](docs/INSTALL_DEBIAN.en.md).
-Handbuch A–Z: [docs/HANDBUCH.md](docs/HANDBUCH.md) (Deutsch) /
-[docs/MANUAL.md](docs/MANUAL.md) (English).
-Architecture: [docs/architecture.md](docs/architecture.md).
+A 4-layer LED panel (109 SK6812) was laid out this way and ordered
+from JLCPCB.
 
-## Download (precompiled, nothing to build)
+**Deutsch:** [Einstieg](ANLEITUNG_FUER_ANFAENGER.md) ·
+[Neuinstallation](docs/INSTALL_DEBIAN.md) ·
+[Handbuch](docs/HANDBUCH.md)
 
-Grab the packages from the
-**[Releases page](https://github.com/Draganito/kicad-mcp/releases)**:
+**English:** [Getting started](docs/GETTING_STARTED.md) ·
+[Install on Debian](docs/INSTALL_DEBIAN.en.md) ·
+[Manual](docs/MANUAL.md)
 
-- `kicad-mcp_<version>_amd64.deb` — MCP binary, `kicad-10` wrapper,
-  Cursor setup, docs
-- `kicad-routing-tools_0.20.4-2_amd64.deb` — optional autorouter plugin
-  for the KiCad 10 AppImage (MIT, [drandyhaas](https://github.com/drandyhaas/KiCadRoutingTools)).
-  Does not call kicad-mcp; kicad-mcp does not call it.
+---
 
-```bash
-sudo apt install ./kicad-mcp_<version>_amd64.deb ./kicad-routing-tools_0.20.4-2_amd64.deb
-kicad-routing-tools-setup   # as your user, once
-```
+## Who this is for
 
-Debian/Ubuntu x86-64, glibc 2.39+. You need **KiCad 10** with
-Preferences → Plugins → **Enable IPC API**. On Debian 13, system KiCad
-is 9.0.2 — do not use it. After the mcp deb, start the official AppImage
-with `kicad-10` (`TMPDIR=/tmp`, socket `/tmp/kicad/api.sock`). See
+Students, hobbyists, makers on **Debian/Ubuntu** who want help with
+the boring bits: a LED grid, wire pads, a GND pour, Gerbers that
+JLCPCB accepts.
+
+You still decide the circuit. The assistant should not invent pin
+functions — those come from the LCSC / EasyEDA part.
+
+Skip this if you layout in Altium, only have Windows, or do not want
+an assistant in the editor at all.
+
+---
+
+## What you need
+
+- A PC with Debian or Ubuntu (x86-64)
+- [KiCad 10](https://www.kicad.org/download/linux/) — not Debian’s
+  KiCad 9
+- [Cursor](https://cursor.com)
+- An LCSC part number when you want a real JLCPCB footprint
+  (e.g. `C14663` for an 0603 cap)
+
+---
+
+## Install
+
+1. Download the latest `kicad-mcp_*.deb` from
+   **[Releases](https://github.com/Draganito/kicad-mcp/releases)**.
+2. Install it:
+
+   ```bash
+   sudo apt install ./kicad-mcp_*_amd64.deb
+   ```
+
+3. Start KiCad with **`kicad-10`** (comes with the package). Open the
+   PCB editor. Enable **Preferences → Plugins → Enable IPC API**, then
+   restart KiCad and open the PCB editor again.
+4. Copy the Cursor template into the folder you will open:
+
+   ```bash
+   cp -a /usr/share/kicad-mcp/cursor-setup/.cursor \
+         /usr/share/kicad-mcp/cursor-setup/.cursorignore .
+   ```
+
+5. In Cursor, toggle the `kicad-mcp` server off and on.
+
+Full walkthrough (AppImage, optional autorouter):
 [docs/INSTALL_DEBIAN.md](docs/INSTALL_DEBIAN.md).
-Copy the contents of `/usr/share/kicad-mcp/cursor-setup/` (`.cursor/`
-**and** `.cursorignore`) into the folder you open in Cursor. Everything
-below is only needed if you want to build from source.
 
-## What you get
+---
 
-- **KiCad stays the editor** — this process only talks IPC. Do not
-  edit `.kicad_pcb` by hand.
-- **LCSC parts** — `download_lcsc_part` writes EasyEDA geometry and
-  pin names (`pins.json`) into `jlcpcb_parts.pretty` next to the open
-  board. `get_part_pins` rereads them. Nets follow EasyEDA `pin_name`;
-  a datasheet only after a logic check that EasyEDA cannot be right.
-- **Placement, nets, copper** — footprints (including grids), ratsnest
-  nets, tracks, vias, copper zones. Every write is one KiCad undo
-  (Ctrl+Z).
-- **Cursor MCP** — stdio server; Cursor starts `/usr/bin/kicad-mcp`
-  (or your built binary). Write tools need `--allow-ai-write`.
+## First thing to ask
 
-## Build
+KiCad 10 running, a board open, Cursor on that folder:
 
-Requirements: recent Rust (stable), Linux, KiCad 10 with IPC API.
+> Call `board_summary`.
+
+You want KiCad **10.x**, `has_open_board: true`, and
+`net_ipc_persists: true`. If it says 9.x, you started the wrong KiCad
+— use `kicad-10`.
+
+Then, in plain language, for example:
+
+> Make a 40 × 30 mm board. Download C14663. Place one cap in the
+> middle. Don’t save yet.
+
+Undo is always **Ctrl+Z** in KiCad. The assistant must not save
+unless you ask.
+
+---
+
+## How a board usually gets built
+
+1. **Outline** — the yellow Edge.Cuts rectangle *is* the PCB. The pink
+   A4 frame is only the drawing sheet.
+2. **Parts** — LCSC C-numbers (`download_lcsc_part`), then place or
+   a grid (`place_matrix`). Pin names come from EasyEDA, not from
+   memory.
+3. **Nets** — ratsnest only (`connect_many`). Copper comes later.
+4. **Copper** — tracks, vias, 4-layer stack if you need it, GND/5V
+   pours. Or named-net autoroute (not GND).
+5. **Silk** — `5V` / `GND` / `DATA` next to wire pads. Not on copper.
+6. **Check** — empty pads (`check_board`), clearance (`check_drc`),
+   return path (`review_board`).
+7. **Order** — `export_manufacturing` writes the JLCPCB zip + BOM +
+   pick-and-place. Silk has no U1/C3 (JLCPCB DFM).
+
+Coordinates are millimetres, **+x right, +y up**.
+
+The assistant has a small tool list on purpose. The A–Z names live in
+the [manual](docs/MANUAL.md).
+
+---
+
+## If something fails
+
+| What you see | Usual cause |
+| --- | --- |
+| MCP cannot connect | PCB editor closed, or IPC API still off |
+| Version 9 / nets empty | System KiCad instead of `kicad-10` |
+| Writes refused | Cursor template not copied (needs `--allow-ai-write`) |
+| Parts piled in the sheet corner | A bug in pad coordinates — not you; say so |
+
+---
+
+## Build from source
+
+Only if you are changing the Rust code. Makers can stop at the `.deb`.
 
 ```bash
 cargo test --workspace
 cargo build --release -p kicad-mcp
 ```
 
-Debian package (needs [`cargo-deb`](https://crates.io/crates/cargo-deb)):
-
-```bash
-cargo install cargo-deb --locked
-dist/make_beta_package.sh
-# → dist/kicad-mcp_<version>_amd64.deb
-# → dist/kicad-routing-tools_0.20.4-2_amd64.deb
-```
-
-From a source tree, point Cursor at the **built binary**, not
-`cargo run`:
-
-```json
-{
-  "mcpServers": {
-    "kicad-mcp": {
-      "command": "/path/to/kicad-mcp/target/release/kicad-mcp",
-      "args": ["--allow-ai-write"]
-    }
-  }
-}
-```
-
-A packaged copy lives in [`contrib/cursor-setup/`](contrib/cursor-setup)
-(command = `/usr/bin/kicad-mcp`). After Rust changes: rebuild, then
+Debian package: `dist/make_beta_package.sh` (needs `cargo-deb`).
+Point Cursor at the **built binary**, not `cargo run`. After a rebuild,
 toggle the MCP server off/on.
 
-Without `--allow-ai-write`, every write tool refuses.
+Layout of the repo: [docs/architecture.md](docs/architecture.md).
 
-## Tools
+---
 
-Read: `board_summary`, `get_footprints`, `get_nets`, `get_pads`,
-`check_placement`, `get_routing_scene`, `list_parts`, `get_part_pins`,
-`check_board`, `review_board`.
+## License
 
-Write: `download_lcsc_part`, `make_wire_pad`, `make_mounting_hole`,
-`place_footprint`, `place_parts`, `place_matrix`, `move_footprint`,
-`remove_footprint`, `clear_board`, `clear_zones`, `set_board_outline`,
-`connect_pins`, `connect_many`, `disconnect_pin`, `disconnect_many`,
-`add_text`, `add_texts`, `add_track`, `add_tracks`, `add_via`,
-`add_vias`, `stitch_via`, `set_copper_zone`, `set_copper_layers`, `autoroute_nets`,
-`ripup_wire` (by `segment_id`), `check_drc`, `render_board`,
-`save_board`, `export_manufacturing`.
-
-Coordinates are **KiCad native millimetres** (board origin, +x right,
-+y up). Start with `board_summary`.
-
-The pink A4 frame in the editor is the **drawing sheet**, not the PCB.
-Board size is **Edge.Cuts** (`set_board_outline`). If origin is omitted
-on a rectangle, it is centred on that sheet. Existing Edge.Cuts are
-**replaced** unless `replace` is false.
-
-**KiCad 10** persists `Pad.net` / `Track.net` after `connect_many`.
-System 9 does not — `board_summary.net_ipc_persists` must be true.
-Nested pads are not parent-transformed — this crate bakes board
-millimetres into every pad.
-
-`export_manufacturing` needs **kicad-cli** (same KiCad install). It
-saves the open board, then writes JLCPCB files next to
-the project: `<name>_gerbers.zip`, `<name>_bom.csv`, `<name>_cpl.csv`.
-Silkscreen in the zip has **no** reference/value text (JLCPCB DFM
-flags those on dense boards); names stay in the BOM and CPL.
-
-## Repository layout
-
-```text
-crates/kicad-mcp      MCP stdio server (KiCad IPC)
-crates/easyeda-kicad  LCSC/EasyEDA → .kicad_mod / .kicad_sym
-contrib/              Cursor MCP config for the .deb
-docs/                 Manuals + architecture notes
-dist/                 Deb build script + LIESMICH.txt
-scripts/              KiCad 10 launcher (also /usr/bin/kicad-10 in the .deb)
-dist/kicad-routing-tools/  companion autorouter .deb (built, not committed)
-```
-
-## Credits
+[AGPL-3.0-only](LICENSE) — Copyright © 2026 Dragan Bojovic.
+See [NOTICE](NOTICE).
 
 KiCad is a separate GPL-3.0 program. This repo only talks to it over
 the published IPC API.

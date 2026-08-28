@@ -1,9 +1,9 @@
 # kicad-mcp — Das Handbuch
 
-Vollständige Anleitung von A bis Z, Stand v0.1.0.
-English: [MANUAL.md](MANUAL.md).
-Neuinstallation Debian + Cursor: [INSTALL_DEBIAN.md](INSTALL_DEBIAN.md).
-Einstieg mit Checkliste: [ANLEITUNG_FUER_ANFAENGER.md](../ANLEITUNG_FUER_ANFAENGER.md).
+Nachschlagewerk von A bis Z. Zum Ankommen zuerst den
+[Einstieg für Maker](../ANLEITUNG_FUER_ANFAENGER.md).
+English: [MANUAL.md](MANUAL.md) · [Getting started](GETTING_STARTED.md).
+Neuinstallation: [INSTALL_DEBIAN.md](INSTALL_DEBIAN.md).
 
 ---
 
@@ -27,10 +27,13 @@ Einstieg mit Checkliste: [ANLEITUNG_FUER_ANFAENGER.md](../ANLEITUNG_FUER_ANFAENG
 
 ## 1. Was ist kicad-mcp
 
-kicad-mcp ist ein **stdio-MCP-Server** für Cursor. Er steuert einen
-**laufenden KiCad-PCB-Editor** über die offizielle IPC-API. KiCad bleibt
-der Editor; dieses Programm ist kein zweiter Layout-Editor.
-`autoroute_nets` kann die Companion-CLI für genannte Netze starten.
+Du lässt KiCad offen. Aus Cursor heraus legt ein Assistent die Platine
+in dem Editor, den du schon siehst. KiCad bleibt die Wahrheit; dieses
+Programm ist kein zweiter Layout-Editor.
+
+Technisch: ein **stdio-MCP-Server**, der den **PCB-Editor** über die
+offizielle IPC-API steuert. `autoroute_nets` kann die Companion-CLI
+für genannte Netze starten.
 
 Footprints für JLCPCB kommen von **EasyEDA / LCSC**
 (`download_lcsc_part`). Drahtpads und Montagelöcher werden parametrisch
