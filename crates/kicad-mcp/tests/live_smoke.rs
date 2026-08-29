@@ -243,8 +243,7 @@ async fn export_manufacturing_to_project() {
     let dir = k.project_dir().await.expect("project dir");
     let fps = k.footprints().await.expect("footprints");
     let copper = k.copper_layer_count().await.unwrap_or(2);
-    let files =
-        kicad_mcp::fab::export_manufacturing(&board, &dir, &fps, copper).expect("export");
+    let files = kicad_mcp::fab::export_manufacturing(&board, &dir, &fps, copper).expect("export");
     eprintln!("gerber_zip={}", files.gerber_zip.display());
     eprintln!(
         "bom_csv={} rows={}",

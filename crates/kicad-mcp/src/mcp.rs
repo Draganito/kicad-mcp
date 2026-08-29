@@ -71,14 +71,18 @@ impl KicadMcp {
     }
 
     #[tool(
-        description = "Every pad as hard data straight from KiCad's baked protos: reference, pin, net, absolute x_mm/y_mm, size, rotation, smd/pth/npth, shape, layer, drill. Optional reference and/or net filter. Use this to verify placement and orientation against reality (a mirrored or mis-rotated part shows pads on the wrong side of the anchor) — never guess from templates or renders."
+        description = "Every pad as hard data straight from KiCad's baked protos: reference, pin, net, absolute x_mm/y_mm, size, rotation, smd/pth/npth, shape, layer, layers (every copper layer the pad exists on — PTH wire pads must list In1/In2 or a 5V pour cannot attach), drill. Optional reference and/or net filter. Use this to verify placement and orientation against reality (a mirrored or mis-rotated part shows pads on the wrong side of the anchor) — never guess from templates or renders."
     )]
     async fn get_pads(
         &self,
         Parameters(args): Parameters<GetPadsArgs>,
     ) -> Result<CallToolResult, McpError> {
         with_kicad(self, move |k| async move {
-            let reference = args.reference.as_deref().map(str::trim).filter(|s| !s.is_empty());
+            let reference = args
+                .reference
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty());
             let net = args.net.as_deref().map(str::trim).filter(|s| !s.is_empty());
             let pads = crate::pads::board_pads(&k, reference, net).await?;
             Ok(serde_json::json!({
@@ -187,7 +191,7 @@ impl KicadMcp {
     }
 
     #[tool(
-        description = "Short layout-physics review of the open board (reads only). Return path / GND pour, power pour, whether 5V and GND sit on adjacent layers, and a GND via within 3 mm of each decoupling-cap GND pad. Not DRC and not connectivity — those are check_drc and check_board. Does not flag 90° corners or silk overlap. Call after copper, before claiming the board is done. Report: ok, verdict, summary, findings[], not_checked[]."
+        description = "Short layout-physics review of the open board (reads only). Return path / GND pour, power pour, whether 5V and GND sit on adjacent layers, a GND via within 3 mm of each decoupling-cap GND pad, and every PTH (wire pad) against those pours: matching net needs the pad on that layer plus thermals (or solid); other power pours and signal PTHs need clearance. Not DRC and not connectivity — those are check_drc and check_board. Does not flag 90° corners or silk overlap. Call after copper, before claiming the board is done. Report: ok, verdict, summary, findings[], not_checked[]."
     )]
     async fn review_board(&self) -> Result<CallToolResult, McpError> {
         with_kicad(self, |k| async move {
@@ -406,8 +410,14 @@ impl KicadMcp {
             return refusal;
         }
         with_kicad(self, move |k| async move {
-            crate::pads::move_footprint(&k, &args.reference, args.x_mm, args.y_mm, args.rotation_deg)
-                .await
+            crate::pads::move_footprint(
+                &k,
+                &args.reference,
+                args.x_mm,
+                args.y_mm,
+                args.rotation_deg,
+            )
+            .await
         })
         .await
     }
@@ -1893,13 +1903,13 @@ impl ServerHandler for KicadMcp {
              disconnect_pin to put a pad back on unconnected after a mis-wire, \
              autoroute_nets for named signal nets (not GND), set_copper_layers then set_copper_zone for 5V/GND. \
              move_footprint relocates/rotates a placed part (rigid transform, nets stay, copper does not move). \
-             get_pads reports every pad with absolute position, rotation and net — verify placement with it \
-             instead of guessing. check_placement is the hard audit: template pads recomputed at \
+             get_pads reports every pad with absolute position, rotation, net and layers (all copper \
+             layers on the padstack) — verify placement with it instead of guessing. check_placement is the hard audit: template pads recomputed at \
              anchor+rotation vs the baked board pads; mirrored/mis-rotated/stale parts fail with mm deltas. \
              Run it after placing or moving. render_board writes a PNG (kicad-cli pcb render) for visual checks \
              (no 3D bodies on EasyEDA parts). Copper: get_routing_scene then ripup_wire with segment_id. \
              autoroute_nets calls the Routing Tools CLI, reloads, and refills zones (no Ctrl+Z for that step). \
-             After copper, check_drc (kicad-cli), check_board, then review_board (return path / pours / cap vias — not 90° corners). \
+             After copper, check_drc (kicad-cli), check_board, then review_board (return path / pours / cap vias / PTH thermals — not 90° corners). \
              Do not edit .kicad_pcb by hand. \
              export_manufacturing writes JLCPCB files: <stem>_gerbers.zip + _bom.csv + _cpl.csv (needs kicad-cli). \
              {write_note}"

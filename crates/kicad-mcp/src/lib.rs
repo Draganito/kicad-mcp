@@ -22,7 +22,7 @@ pub mod nets;
 pub mod outline;
 pub mod pads;
 pub mod place;
-pub mod review;
 pub mod proto_wire;
+pub mod review;
 pub mod silk;
 pub mod stitch;

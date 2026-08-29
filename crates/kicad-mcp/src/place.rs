@@ -15,6 +15,8 @@ const NM_PER_MM: f64 = 1_000_000.0;
 pub const PLACE_MAX: usize = 150;
 
 const BL_F_CU: i32 = 3;
+const BL_IN1_CU: i32 = 4;
+const BL_IN2_CU: i32 = 5;
 const BL_B_CU: i32 = 34;
 const BL_B_PASTE: i32 = 37;
 const BL_F_PASTE: i32 = 38;
@@ -25,6 +27,9 @@ const BL_F_FAB: i32 = 52;
 
 const LS_UNLOCKED: i32 = 1;
 const PST_NORMAL: i32 = 1;
+/// Through-pad stack: F.Cu + inners + B.Cu. Same idea as a via — a 5V
+/// wire pad must exist on In1.Cu or the power pour cannot attach.
+const PST_FRONT_INNER_BACK: i32 = 2;
 const PSS_CIRCLE: i32 = 1;
 const PSS_RECTANGLE: i32 = 2;
 const PSS_OVAL: i32 = 3;
@@ -482,21 +487,54 @@ fn field(name: &str, text: &str, x_mm: f64, y_mm: f64, layer: i32, visible: bool
     }
 }
 
+fn pad_stack_layer(layer: i32, shape: i32, width_mm: f64, height_mm: f64) -> PadStackLayer {
+    PadStackLayer {
+        layer,
+        shape,
+        size: Some(Vector2 {
+            x_nm: mm_to_nm(width_mm),
+            y_nm: mm_to_nm(height_mm),
+        }),
+    }
+}
+
 fn pad_any(pad: &ModPad) -> Any {
-    let (pad_type, layers) = match pad.kind {
-        ModPadKind::SmdFront => (PT_SMD, vec![BL_F_CU, BL_F_PASTE, BL_F_MASK]),
-        ModPadKind::SmdBack => (PT_SMD, vec![BL_B_CU, BL_B_PASTE, BL_B_MASK]),
-        ModPadKind::ThruHole => (PT_PTH, vec![BL_F_CU, BL_B_CU, BL_F_MASK, BL_B_MASK]),
-        ModPadKind::Npth => (PT_NPTH, vec![BL_F_CU, BL_B_CU, BL_F_MASK, BL_B_MASK]),
-    };
     let shape = match pad.shape {
         ModPadShape::Circle => PSS_CIRCLE,
         ModPadShape::Oval => PSS_OVAL,
         ModPadShape::Rect => PSS_RECTANGLE,
     };
-    let copper_layer = match pad.kind {
-        ModPadKind::SmdBack => BL_B_CU,
-        _ => BL_F_CU,
+    let (pad_type, stack_type, layers, copper_layers) = match pad.kind {
+        ModPadKind::SmdFront => (
+            PT_SMD,
+            PST_NORMAL,
+            vec![BL_F_CU, BL_F_PASTE, BL_F_MASK],
+            vec![pad_stack_layer(BL_F_CU, shape, pad.width_mm, pad.height_mm)],
+        ),
+        ModPadKind::SmdBack => (
+            PT_SMD,
+            PST_NORMAL,
+            vec![BL_B_CU, BL_B_PASTE, BL_B_MASK],
+            vec![pad_stack_layer(BL_B_CU, shape, pad.width_mm, pad.height_mm)],
+        ),
+        // 4-layer through stack so a 5V PTH can join In1.Cu (and GND In2/B).
+        ModPadKind::ThruHole => (
+            PT_PTH,
+            PST_FRONT_INNER_BACK,
+            vec![BL_F_CU, BL_IN1_CU, BL_IN2_CU, BL_B_CU, BL_F_MASK, BL_B_MASK],
+            vec![
+                pad_stack_layer(BL_F_CU, shape, pad.width_mm, pad.height_mm),
+                pad_stack_layer(BL_IN1_CU, shape, pad.width_mm, pad.height_mm),
+                pad_stack_layer(BL_IN2_CU, shape, pad.width_mm, pad.height_mm),
+                pad_stack_layer(BL_B_CU, shape, pad.width_mm, pad.height_mm),
+            ],
+        ),
+        ModPadKind::Npth => (
+            PT_NPTH,
+            PST_NORMAL,
+            vec![BL_F_CU, BL_B_CU, BL_F_MASK, BL_B_MASK],
+            vec![pad_stack_layer(BL_F_CU, shape, pad.width_mm, pad.height_mm)],
+        ),
     };
     let proto = Pad {
         locked: LS_UNLOCKED,
@@ -507,11 +545,13 @@ fn pad_any(pad: &ModPad) -> Any {
             y_nm: mm_to_nm(pad.y_mm),
         }),
         pad_stack: Some(PadStack {
-            r#type: PST_NORMAL,
+            r#type: stack_type,
             layers,
             drill: pad.drill_mm.map(|d| {
                 let h = pad.drill_h_mm.unwrap_or(d);
                 DrillProperties {
+                    start_layer: BL_F_CU,
+                    end_layer: BL_B_CU,
                     diameter: Some(Vector2 {
                         x_nm: mm_to_nm(d),
                         y_nm: mm_to_nm(h),
@@ -524,18 +564,9 @@ fn pad_any(pad: &ModPad) -> Any {
                     } else {
                         DRILL_CIRCLE
                     },
-                    ..Default::default()
                 }
             }),
-            copper_layers: vec![PadStackLayer {
-                layer: copper_layer,
-                shape,
-                size: Some(Vector2 {
-                    x_nm: mm_to_nm(pad.width_mm),
-                    y_nm: mm_to_nm(pad.height_mm),
-                }),
-                ..Default::default()
-            }],
+            copper_layers,
             angle: (pad.rot_deg.abs() > 0.01).then_some(Angle {
                 value_degrees: pad.rot_deg,
             }),
@@ -837,6 +868,30 @@ mod tests {
     }
 
     #[test]
+    fn pth_wire_pad_spans_inner_copper() {
+        let pad = ModPad {
+            number: "1".into(),
+            kind: ModPadKind::ThruHole,
+            shape: ModPadShape::Circle,
+            x_mm: 0.0,
+            y_mm: 0.0,
+            rot_deg: 0.0,
+            width_mm: 2.8,
+            height_mm: 2.8,
+            drill_mm: Some(1.4),
+            drill_h_mm: None,
+        };
+        let decoded = Pad::decode(pad_any(&pad).value.as_slice()).unwrap();
+        let stack = decoded.pad_stack.unwrap();
+        assert_eq!(stack.r#type, PST_FRONT_INNER_BACK);
+        let copper: Vec<i32> = stack.copper_layers.iter().map(|l| l.layer).collect();
+        assert_eq!(copper, vec![BL_F_CU, BL_IN1_CU, BL_IN2_CU, BL_B_CU]);
+        let drill = stack.drill.unwrap();
+        assert_eq!(drill.start_layer, BL_F_CU);
+        assert_eq!(drill.end_layer, BL_B_CU);
+    }
+
+    #[test]
     fn parses_courtyard_and_overlap() {
         let src = r#"(footprint "C25804_R0603"
   (fp_line (start -1.3851 -0.6606) (end 1.3851 -0.6606) (stroke (width 0.05) (type solid)) (layer "F.CrtYd"))
@@ -884,7 +939,10 @@ mod tests {
             pads: &[],
         };
         let (x, y) = world_xy(3.0, 0.0, &spec);
-        assert!((x - 100.0).abs() < 1e-9, "east pad must move to centre x, got {x}");
+        assert!(
+            (x - 100.0).abs() < 1e-9,
+            "east pad must move to centre x, got {x}"
+        );
         assert!(
             (y - 97.0).abs() < 1e-9,
             "east pad must land north (y-down frame: smaller y), got {y}"

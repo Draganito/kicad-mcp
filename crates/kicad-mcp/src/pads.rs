@@ -58,6 +58,10 @@ pub struct PadRow {
     /// `rect`, `oval`, `circle`.
     pub shape: String,
     pub layer: String,
+    /// Every copper layer this pad exists on (`F.Cu`, `In1.Cu`, …).
+    /// Through-hole wire pads should list the inners — a 5V PTH without
+    /// `In1.Cu` cannot take thermals from the power pour.
+    pub layers: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub drill_mm: Option<f64>,
     /// Slot length for oblong drills; absent for round holes.
@@ -85,6 +89,12 @@ pub async fn board_pads(
             net_of.insert(id, entry.net_name.unwrap_or_default());
         }
     }
+    let copper_count = k
+        .summary()
+        .await
+        .ok()
+        .and_then(|s| s.copper_layer_count)
+        .unwrap_or(2);
     let raws = k
         .raw_items(vec![kicad_ipc_rs::PcbObjectTypeCode::new_footprint().code])
         .await?;
@@ -125,6 +135,17 @@ pub async fn board_pads(
             let stack = pad.pad_stack.unwrap_or_default();
             let copper = stack.copper_layers.first();
             let size = copper.and_then(|c| c.size.clone()).unwrap_or_default();
+            let copper_ids: Vec<i32> = stack.copper_layers.iter().map(|c| c.layer).collect();
+            let layer_ids = crate::copper::copper_layer_ids_from_stack(
+                &stack.layers,
+                &copper_ids,
+                copper_count,
+            );
+            let layers: Vec<String> = layer_ids
+                .iter()
+                .copied()
+                .map(crate::copper::layer_name)
+                .collect();
             rows.push(PadRow {
                 reference: fp_ref.clone(),
                 pin: pad.number.clone(),
@@ -148,12 +169,16 @@ pub async fn board_pads(
                     _ => "?",
                 }
                 .into(),
-                layer: match copper.map(|c| c.layer) {
-                    Some(BL_B_CU) => "B.Cu".into(),
-                    Some(BL_F_CU) => "F.Cu".into(),
-                    Some(other) => format!("L{other}"),
-                    None => "?".into(),
-                },
+                layer: layers
+                    .first()
+                    .cloned()
+                    .unwrap_or_else(|| match copper.map(|c| c.layer) {
+                        Some(BL_B_CU) => "B.Cu".into(),
+                        Some(BL_F_CU) => "F.Cu".into(),
+                        Some(other) => format!("L{other}"),
+                        None => "?".into(),
+                    }),
+                layers,
                 drill_mm: stack
                     .drill
                     .as_ref()
@@ -201,7 +226,10 @@ pub(crate) fn rigid_xy(
     let (s, c) = (rad.sin(), rad.cos());
     let dx = px - old_anchor.0;
     let dy = py - old_anchor.1;
-    (new_anchor.0 + c * dx + s * dy, new_anchor.1 - s * dx + c * dy)
+    (
+        new_anchor.0 + c * dx + s * dy,
+        new_anchor.1 - s * dx + c * dy,
+    )
 }
 
 /// Patch a raw `FootprintInstance` Any: anchor, orientation, every nested
@@ -281,7 +309,9 @@ pub fn transform_footprint_any(
     })?;
 
     if pads_moved.get() == 0 {
-        return Err("footprint proto has no pads — refusing a move that would strand copper".into());
+        return Err(
+            "footprint proto has no pads — refusing a move that would strand copper".into(),
+        );
     }
     Ok((
         Any {
@@ -662,9 +692,9 @@ pub async fn check_placement(
             skipped.push(skip("footprint has no template name (value field)"));
             continue;
         };
-        let entry = templates.entry(template.to_string()).or_insert_with(|| {
-            crate::place::load_template(&pretty, template).map(|t| t.pads)
-        });
+        let entry = templates
+            .entry(template.to_string())
+            .or_insert_with(|| crate::place::load_template(&pretty, template).map(|t| t.pads));
         let tpl_pads = match entry {
             Ok(p) => p.clone(),
             Err(e) => {
@@ -684,7 +714,10 @@ pub async fn check_placement(
             rotation_deg: fp.rotation_deg.unwrap_or(0.0),
             pads: &[],
         };
-        let expected: Vec<GeomPad> = tpl_pads.iter().map(|p| geom_from_template(p, &spec)).collect();
+        let expected: Vec<GeomPad> = tpl_pads
+            .iter()
+            .map(|p| geom_from_template(p, &spec))
+            .collect();
         let mut problems = diff_pads(&expected, actual, tolerance_mm);
         if problems.is_empty() {
             passed.push(r.to_string());
@@ -782,6 +815,10 @@ struct PadStackLayerDec {
 
 #[derive(Clone, PartialEq, Message)]
 struct PadStackDec {
+    #[prost(int32, tag = "1")]
+    r#type: i32,
+    #[prost(int32, repeated, tag = "2")]
+    layers: Vec<i32>,
     #[prost(message, optional, tag = "3")]
     drill: Option<DrillDec>,
     #[prost(message, repeated, tag = "5")]
@@ -908,7 +945,10 @@ mod tests {
     fn rigid_plus_90_is_counterclockwise_on_screen() {
         let (x, y) = rigid_xy(103.0, 80.0, (100.0, 80.0), (100.0, 80.0), 90.0);
         assert!((x - 100.0).abs() < 1e-9);
-        assert!((y - 77.0).abs() < 1e-9, "east pad must land north, got y={y}");
+        assert!(
+            (y - 77.0).abs() < 1e-9,
+            "east pad must land north, got y={y}"
+        );
     }
 
     #[test]
@@ -940,7 +980,11 @@ mod tests {
         // Pad 2 sat east of the anchor; after +90° (visually CCW) it is north.
         let p2 = rows.iter().find(|r| r.0 == "2").unwrap();
         assert!((p2.1 - 100.0).abs() < 1e-6);
-        assert!((p2.2 - 79.25).abs() < 1e-6, "expected north of anchor, got y={}", p2.2);
+        assert!(
+            (p2.2 - 79.25).abs() < 1e-6,
+            "expected north of anchor, got y={}",
+            p2.2
+        );
         // Pad angle followed the delta.
         let def = FpInstDec::decode(patched.value.as_slice())
             .unwrap()
@@ -962,14 +1006,25 @@ mod tests {
         let placed_at_0 = instance(100.0, 80.0, 0.0, &pads);
         let placed_at_90 = instance(120.0, 70.0, 90.0, &pads);
         let (moved, _) =
-            transform_footprint_any(&placed_at_0, (100.0, 80.0, 0.0), (120.0, 70.0, 90.0))
-                .unwrap();
+            transform_footprint_any(&placed_at_0, (100.0, 80.0, 0.0), (120.0, 70.0, 90.0)).unwrap();
         let a = decoded_pads(&moved);
         let b = decoded_pads(&placed_at_90);
         for (pa, pb) in a.iter().zip(b.iter()) {
             assert_eq!(pa.0, pb.0);
-            assert!((pa.1 - pb.1).abs() < 1e-6, "{} x {} vs {}", pa.0, pa.1, pb.1);
-            assert!((pa.2 - pb.2).abs() < 1e-6, "{} y {} vs {}", pa.0, pa.2, pb.2);
+            assert!(
+                (pa.1 - pb.1).abs() < 1e-6,
+                "{} x {} vs {}",
+                pa.0,
+                pa.1,
+                pb.1
+            );
+            assert!(
+                (pa.2 - pb.2).abs() < 1e-6,
+                "{} y {} vs {}",
+                pa.0,
+                pa.2,
+                pb.2
+            );
         }
     }
 
@@ -1186,7 +1241,10 @@ mod tests {
         for item in &inst.definition.unwrap().items {
             let pad = decode_pad(item).unwrap();
             assert!(pad.number == "1" || pad.number == "2");
-            let size = pad.pad_stack.unwrap().copper_layers[0].size.clone().unwrap();
+            let size = pad.pad_stack.unwrap().copper_layers[0]
+                .size
+                .clone()
+                .unwrap();
             assert!((nm_to_mm(size.x_nm) - 0.8).abs() < 1e-6);
             assert!((nm_to_mm(size.y_nm) - 0.9).abs() < 1e-6);
         }

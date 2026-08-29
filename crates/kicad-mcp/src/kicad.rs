@@ -408,11 +408,7 @@ impl Kicad {
             .map_err(fmt_err)?;
         Ok((
             layers.copper_layer_count,
-            layers
-                .layers
-                .into_iter()
-                .map(|l| (l.id, l.name))
-                .collect(),
+            layers.layers.into_iter().map(|l| (l.id, l.name)).collect(),
         ))
     }
 

@@ -93,6 +93,31 @@ pub fn is_copper_layer_id(id: i32) -> bool {
     id == BL_F_CU || id == BL_B_CU || (BL_IN1_CU..=33).contains(&id)
 }
 
+/// Copper ids a PTH actually has: `copper_layers` plus copper entries in
+/// the padstack `layers` list. KiCad often omits an inner from
+/// `copper_layers` while still listing it on `layers` (`*.Cu` expands to
+/// In1…In30 — keep only layers on this board's stack).
+pub fn copper_layer_ids_from_stack(
+    stack_layers: &[i32],
+    copper_layers: &[i32],
+    copper_layer_count: u32,
+) -> Vec<i32> {
+    let allowed = through_via_layers(copper_layer_count);
+    let mut ids: Vec<i32> = copper_layers
+        .iter()
+        .copied()
+        .filter(|id| allowed.contains(id))
+        .collect();
+    for id in stack_layers {
+        if allowed.contains(id) && !ids.contains(id) {
+            ids.push(*id);
+        }
+    }
+    ids.sort_unstable();
+    ids.dedup();
+    ids
+}
+
 /// Through-via copper: F.Cu, inner layers for this stack, B.Cu.
 pub fn through_via_layers(copper_layer_count: u32) -> Vec<i32> {
     let count = copper_layer_count.clamp(2, 32);
@@ -415,6 +440,7 @@ fn poly_zone_any(
         }),
         name: name.unwrap_or(net).to_string(),
         filled: false,
+        filled_polygons: vec![],
         locked: LS_UNLOCKED,
         settings: Some(zone::Settings::CopperSettings(CopperZoneSettings {
             connection: zone_pad_connection(net, pads),
@@ -660,6 +686,14 @@ struct CopperZoneSettings {
 }
 
 #[derive(Clone, PartialEq, Message)]
+struct ZoneFilledPolygons {
+    #[prost(int32, tag = "1")]
+    layer: i32,
+    #[prost(message, optional, tag = "2")]
+    shapes: Option<PolySet>,
+}
+
+#[derive(Clone, PartialEq, Message)]
 struct Zone {
     #[prost(int32, tag = "2")]
     r#type: i32,
@@ -671,18 +705,76 @@ struct Zone {
     name: String,
     #[prost(bool, tag = "9")]
     filled: bool,
+    #[prost(message, repeated, tag = "10")]
+    filled_polygons: Vec<ZoneFilledPolygons>,
     #[prost(int32, tag = "12")]
     locked: i32,
     #[prost(oneof = "zone::Settings", tags = "6")]
     settings: Option<zone::Settings>,
 }
 
+/// How a copper zone attaches pads (KiCad `ZoneConnectionStyle`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ZoneConnectStyle {
+    Solid,
+    PthThermal,
+    Thermal,
+    Other,
+}
+
+/// Filled pour on one copper layer (board millimetres, even-odd contours).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ZoneFill {
+    pub layer_id: i32,
+    pub contours: Vec<Vec<(f64, f64)>>,
+}
+
 /// Copper pour as read back from GetItems (net + layers). Keepouts are skipped.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ZoneSnap {
     pub name: String,
     pub net: String,
     pub layer_ids: Vec<i32>,
+    pub connection: ZoneConnectStyle,
+    pub filled: bool,
+    pub fills: Vec<ZoneFill>,
+}
+
+pub fn zone_connect_style(code: i32) -> ZoneConnectStyle {
+    match code {
+        ZCS_FULL => ZoneConnectStyle::Solid,
+        ZCS_PTH_THERMAL => ZoneConnectStyle::PthThermal,
+        ZCS_THERMAL => ZoneConnectStyle::Thermal,
+        _ => ZoneConnectStyle::Other,
+    }
+}
+
+fn polyline_mm(line: &PolyLine) -> Option<Vec<(f64, f64)>> {
+    let mut pts = Vec::new();
+    for node in &line.nodes {
+        let Some(poly_line_node::Geometry::Point(p)) = &node.geometry else {
+            continue;
+        };
+        pts.push((p.x_nm as f64 / 1_000_000.0, p.y_nm as f64 / 1_000_000.0));
+    }
+    (pts.len() >= 3).then_some(pts)
+}
+
+fn polyset_contours(set: &PolySet) -> Vec<Vec<(f64, f64)>> {
+    let mut out = Vec::new();
+    for poly in &set.polygons {
+        if let Some(outline) = &poly.outline {
+            if let Some(pts) = polyline_mm(outline) {
+                out.push(pts);
+            }
+        }
+        for hole in &poly.holes {
+            if let Some(pts) = polyline_mm(hole) {
+                out.push(pts);
+            }
+        }
+    }
+    out
 }
 
 pub fn zone_snap_from_any(any: &Any) -> Option<ZoneSnap> {
@@ -690,23 +782,45 @@ pub fn zone_snap_from_any(any: &Any) -> Option<ZoneSnap> {
         return None;
     }
     let z = Zone::decode(any.value.as_slice()).ok()?;
-    let net = match &z.settings {
-        Some(zone::Settings::CopperSettings(s)) => s
-            .net
-            .as_ref()
-            .map(|n| n.name.as_str())
-            .filter(|n| !n.is_empty())
-            .unwrap_or(z.name.as_str())
-            .to_string(),
+    let (net, connection) = match &z.settings {
+        Some(zone::Settings::CopperSettings(s)) => {
+            let net = s
+                .net
+                .as_ref()
+                .map(|n| n.name.as_str())
+                .filter(|n| !n.is_empty())
+                .unwrap_or(z.name.as_str())
+                .to_string();
+            let connection = s
+                .connection
+                .as_ref()
+                .map(|c| zone_connect_style(c.zone_connection))
+                .unwrap_or(ZoneConnectStyle::Other);
+            (net, connection)
+        }
         _ => return None,
     };
     if net.is_empty() {
         return None;
     }
+    let fills = z
+        .filled_polygons
+        .iter()
+        .filter_map(|fp| {
+            let contours = fp.shapes.as_ref().map(polyset_contours).unwrap_or_default();
+            (!contours.is_empty()).then_some(ZoneFill {
+                layer_id: fp.layer,
+                contours,
+            })
+        })
+        .collect();
     Some(ZoneSnap {
         name: z.name,
         net,
         layer_ids: z.layers,
+        connection,
+        filled: z.filled,
+        fills,
     })
 }
 
@@ -919,5 +1033,33 @@ mod tests {
         let snap = zone_snap_from_any(&any).expect("copper zone");
         assert_eq!(snap.net, "GND");
         assert_eq!(snap.layer_ids, vec![BL_B_CU]);
+        assert_eq!(snap.connection, ZoneConnectStyle::Solid);
+    }
+
+    #[test]
+    fn zone_snap_reads_pth_thermal() {
+        let any = rect_zone_any_coded(
+            0.0,
+            0.0,
+            40.0,
+            30.0,
+            BL_IN1_CU,
+            "5V",
+            Some("5V_IN1"),
+            0,
+            ZonePadConnect::PthThermal,
+            false,
+        )
+        .unwrap();
+        let snap = zone_snap_from_any(&any).expect("copper zone");
+        assert_eq!(snap.connection, ZoneConnectStyle::PthThermal);
+    }
+
+    #[test]
+    fn padstack_layers_union_picks_up_inner_from_layers_list() {
+        // IPC often lists In2 on `layers` but drops it from `copper_layers`.
+        let wildcard: Vec<i32> = (BL_F_CU..=33).chain(std::iter::once(BL_B_CU)).collect();
+        let ids = copper_layer_ids_from_stack(&wildcard, &[BL_F_CU, BL_IN1_CU, BL_B_CU], 4);
+        assert_eq!(ids, vec![BL_F_CU, BL_IN1_CU, BL_IN1_CU + 1, BL_B_CU]);
     }
 }

@@ -156,10 +156,12 @@ KiCad-Library-Footprints ersetzen.
 
 `get_pads` liefert jeden Pad als harte Daten direkt aus KiCads
 gebackenen Protos: Referenz, Pin, Netz, absolute x/y, Größe, Drehung,
-smd/pth/npth, Form, Lage, Bohrung; filterbar nach `reference` und/oder
-`net`. Damit Platzierung und Orientierung verifizieren (ein
-gespiegeltes oder falsch gedrehtes Teil zeigt Pads auf der falschen
-Seite des Ankers) statt aus Templates oder Renderings zu raten.
+smd/pth/npth, Form, Lage, `layers` (jede Kupferlage des Padstacks —
+ein 5V-PTH ohne `In1.Cu` bekommt keine Thermals aus der Power-Fläche),
+Bohrung; filterbar nach `reference` und/oder `net`. Damit Platzierung
+und Orientierung verifizieren (ein gespiegeltes oder falsch gedrehtes
+Teil zeigt Pads auf der falschen Seite des Ankers) statt aus Templates
+oder Renderings zu raten.
 
 `check_placement` macht daraus ein hartes OK/Fail-Audit: jeder Pad wird
 aus seinem `jlcpcb_parts`-Template am Anker + Rotation des Footprints
@@ -215,7 +217,8 @@ Polarität — GND vs. Rail vom Nachbarpad.
   und Zonen-Refill
 - `check_drc` — `kicad-cli pcb drc` (Clearance, Silk, Löcher); speichert
 - `review_board` — liest nur: GND/Power-Pour, benachbarte Lagen, Via
-  am Elko-GND (3 mm). Kein DRC, keine 90°-Ecken. Vor „fertig“.
+  am Elko-GND (3 mm), PTH-Drahtpads gegen die Flächen (Thermals vs.
+  Abstand). Kein DRC, keine 90°-Ecken. Vor „fertig“.
 
 ### Silk-Text
 
@@ -245,13 +248,13 @@ Keine parallelen Copper-Writes: KiCad `BeginCommit` verträgt das nicht.
 | `board_summary` | Lesen — Version, Zähler |
 | `get_footprints` | Lesen — Ref, Lage, Drehung |
 | `get_nets` | Lesen — Netze und Pads |
-| `get_pads` | Lesen — gebackene Pad-Wahrheit (Position, Netz, Drehung) |
+| `get_pads` | Lesen — gebackene Pad-Wahrheit (Position, Netz, Drehung, Lagen) |
 | `check_placement` | Lesen — hartes OK/Fail: Template-Pads vs. gebackene Pads |
 | `get_routing_scene` | Lesen — Tracks/Vias + IDs |
 | `list_parts` | Lesen — Templates inkl. Builtins |
 | `get_part_pins` | Lesen — EasyEDA `number` + `pin_name` |
 | `check_board` | Lesen — Pads ohne Netz |
-| `review_board` | Lesen — kurzer Physik-Report (Pour, Rückweg, Elko-Via) |
+| `review_board` | Lesen — kurzer Physik-Report (Pour, Rückweg, Elko-Via, PTH-Thermals) |
 | `download_lcsc_part` | Schreiben — EasyEDA → Library + Pins |
 | `make_wire_pad` | Schreiben — parametrisches PTH-Drahtpad-Template |
 | `make_mounting_hole` | Schreiben — parametrisches NPTH-Loch-Template |

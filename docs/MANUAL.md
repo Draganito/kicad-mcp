@@ -154,7 +154,9 @@ C-number.
 
 `get_pads` reports every pad as hard data straight from KiCad's baked
 protos: reference, pin, net, absolute x/y, size, rotation, smd/pth/npth,
-shape, layer, drill; filter by `reference` and/or `net`. Use it to
+shape, layer, `layers` (every copper layer on the padstack — a 5V PTH
+without `In1.Cu` cannot take thermals from the power pour), drill;
+filter by `reference` and/or `net`. Use it to
 verify placement and orientation (a mirrored or mis-rotated part shows
 pads on the wrong side of the anchor) instead of guessing from
 templates or renders.
@@ -210,7 +212,8 @@ rail from the companion pad.
   refill zones
 - `check_drc` — `kicad-cli pcb drc` (clearance, silk, holes); saves
 - `review_board` — read only: GND/power pour, adjacent layers, via
-  at each cap GND (3 mm). Not DRC, not 90° corners. Before “done”.
+  at each cap GND (3 mm), PTH wire pads vs those pours (thermals vs
+  clearance). Not DRC, not 90° corners. Before “done”.
 
 ### Silk text
 
@@ -239,13 +242,13 @@ KiCad `BeginCommit` races.
 | `board_summary` | Read — version, counts |
 | `get_footprints` | Read — ref, position, rotation |
 | `get_nets` | Read — nets and pads |
-| `get_pads` | Read — baked pad truth (position, net, rotation) |
+| `get_pads` | Read — baked pad truth (position, net, rotation, layers) |
 | `check_placement` | Read — hard OK/fail: template pads vs baked pads |
 | `get_routing_scene` | Read — tracks/vias + ids |
 | `list_parts` | Read — templates including builtins |
 | `get_part_pins` | Read — EasyEDA `number` + `pin_name` |
 | `check_board` | Read — pads with empty net |
-| `review_board` | Read — short physics report (pour, return path, cap via) |
+| `review_board` | Read — short physics report (pour, return path, cap via, PTH thermals) |
 | `download_lcsc_part` | Write — EasyEDA → library + pins |
 | `make_wire_pad` | Write — parametric PTH wire pad template |
 | `make_mounting_hole` | Write — parametric NPTH hole template |

@@ -91,11 +91,11 @@ pub fn text_any(
             attributes: Some(TextAttributes {
                 horizontal_alignment: HA_CENTER,
                 vertical_alignment: VA_CENTER,
-                angle: (rot.abs() > 0.01).then_some(Angle {
-                    value_degrees: rot,
-                }),
+                angle: (rot.abs() > 0.01).then_some(Angle { value_degrees: rot }),
                 line_spacing: 1.0,
-                stroke_width: Some(Distance { value_nm: stroke_nm }),
+                stroke_width: Some(Distance {
+                    value_nm: stroke_nm,
+                }),
                 visible: true,
                 mirrored: silk.mirrored,
                 size: Some(Vector2 {

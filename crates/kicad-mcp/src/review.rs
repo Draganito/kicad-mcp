@@ -6,7 +6,7 @@
 
 use serde::Serialize;
 
-use crate::copper::{self, ZoneSnap};
+use crate::copper::{self, ZoneConnectStyle, ZoneSnap};
 use crate::kicad::Kicad;
 use crate::pads::PadRow;
 
@@ -53,6 +53,8 @@ pub struct PadFact {
     pub x_mm: f64,
     pub y_mm: f64,
     pub kind: String,
+    pub layer_ids: Vec<i32>,
+    pub radius_mm: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -66,6 +68,8 @@ pub struct ViaFact {
 pub struct ZoneFact {
     pub net: String,
     pub layer_ids: Vec<i32>,
+    pub connection: ZoneConnectStyle,
+    pub fills: Vec<copper::ZoneFill>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -92,6 +96,7 @@ pub fn review(input: &ReviewInput) -> ReviewReport {
     findings.extend(rail_pour_finding(input));
     findings.extend(adjacent_planes_finding(input));
     findings.extend(cap_via_finding(input));
+    findings.extend(pth_pour_finding(input));
     findings.extend(signal_pour_finding(input));
     findings.extend(split_gnd_finding(input));
 
@@ -143,12 +148,19 @@ pub async fn review_open_board(k: &Kicad) -> Result<ReviewReport, String> {
 }
 
 fn pad_fact(p: PadRow) -> PadFact {
+    let layer_ids: Vec<i32> = p
+        .layers
+        .iter()
+        .filter_map(|n| copper::parse_copper_layer(Some(n)).ok())
+        .collect();
     PadFact {
         reference: p.reference,
         net: p.net,
         x_mm: p.x_mm,
         y_mm: p.y_mm,
         kind: p.kind,
+        layer_ids,
+        radius_mm: (p.width_mm.max(p.height_mm) / 2.0).max(0.2),
     }
 }
 
@@ -156,6 +168,8 @@ fn zone_fact(z: ZoneSnap) -> ZoneFact {
     ZoneFact {
         net: z.net,
         layer_ids: z.layer_ids,
+        connection: z.connection,
+        fills: z.fills,
     }
 }
 
@@ -166,12 +180,7 @@ fn net_kind(name: &str) -> NetKind {
     }
     let u = n.to_ascii_uppercase().replace([' ', '-'], "");
     let u = u.trim_start_matches('+');
-    if u == "0V"
-        || u == "VSS"
-        || u == "AGND"
-        || u == "DGND"
-        || u == "PGND"
-        || u.starts_with("GND")
+    if u == "0V" || u == "VSS" || u == "AGND" || u == "DGND" || u == "PGND" || u.starts_with("GND")
     {
         return NetKind::Ground;
     }
@@ -188,7 +197,8 @@ fn net_kind(name: &str) -> NetKind {
 
 fn is_cap(reference: &str) -> bool {
     let mut chars = reference.chars();
-    matches!(chars.next(), Some('C') | Some('c')) && chars.next().is_some_and(|c| c.is_ascii_digit())
+    matches!(chars.next(), Some('C') | Some('c'))
+        && chars.next().is_some_and(|c| c.is_ascii_digit())
 }
 
 fn stack_finding(layers: u32) -> Finding {
@@ -302,12 +312,12 @@ fn adjacent_planes_finding(input: &ReviewInput) -> Vec<Finding> {
     }
     let n = input.copper_layers;
     let adjacent = rail_layers.iter().any(|r| {
-        gnd_layers.iter().any(|g| {
-            match (stack_index(*r, n), stack_index(*g, n)) {
+        gnd_layers
+            .iter()
+            .any(|g| match (stack_index(*r, n), stack_index(*g, n)) {
                 (Some(a), Some(b)) => a.abs_diff(b) == 1,
                 _ => false,
-            }
-        })
+            })
     });
     if adjacent {
         vec![Finding {
@@ -360,7 +370,9 @@ fn cap_via_finding(input: &ReviewInput) -> Vec<Finding> {
     let mut missing = Vec::new();
     let mut ok_n = 0usize;
     for (r, x, y) in &caps {
-        let near = gnd_vias.iter().any(|v| dist(v.x_mm, v.y_mm, *x, *y) <= CAP_VIA_MM);
+        let near = gnd_vias
+            .iter()
+            .any(|v| dist(v.x_mm, v.y_mm, *x, *y) <= CAP_VIA_MM);
         if near {
             ok_n += 1;
         } else {
@@ -420,6 +432,169 @@ fn signal_pour_finding(input: &ReviewInput) -> Vec<Finding> {
             "Copper pour on signal net(s) {} — usually a mistake (DATA is a track, not a plane).",
             names.join(", ")
         ),
+    }]
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PourAttach {
+    Clearance,
+    Thermal,
+    Solid,
+    Unknown,
+}
+
+fn point_in_fill(x: f64, y: f64, contours: &[Vec<(f64, f64)>]) -> bool {
+    let mut inside = false;
+    for pts in contours {
+        let n = pts.len();
+        if n < 3 {
+            continue;
+        }
+        let mut j = n - 1;
+        for i in 0..n {
+            let (xi, yi) = pts[i];
+            let (xj, yj) = pts[j];
+            if (yi > y) != (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi + 1e-30) + xi {
+                inside = !inside;
+            }
+            j = i;
+        }
+    }
+    inside
+}
+
+fn pour_attach(x: f64, y: f64, radius_mm: f64, contours: &[Vec<(f64, f64)>]) -> PourAttach {
+    if contours.is_empty() {
+        return PourAttach::Unknown;
+    }
+    let n = 16usize;
+    let hits = |r: f64| -> usize {
+        (0..n)
+            .filter(|i| {
+                let a = *i as f64 * std::f64::consts::TAU / n as f64;
+                point_in_fill(x + r * a.cos(), y + r * a.sin(), contours)
+            })
+            .count()
+    };
+    let inner = hits(radius_mm + 0.15);
+    let outer = hits(radius_mm + 0.55);
+    if (2..=12).contains(&inner) {
+        return PourAttach::Thermal;
+    }
+    if inner == 0 && outer >= n / 2 {
+        return PourAttach::Clearance;
+    }
+    if inner >= 13 {
+        return PourAttach::Solid;
+    }
+    if inner == 0 && outer == 0 {
+        return PourAttach::Clearance;
+    }
+    PourAttach::Unknown
+}
+
+fn fill_for_layer<'a>(zone: &'a ZoneFact, layer: i32) -> &'a [Vec<(f64, f64)>] {
+    zone.fills
+        .iter()
+        .find(|f| f.layer_id == layer)
+        .map(|f| f.contours.as_slice())
+        .unwrap_or(&[])
+}
+
+fn pth_pour_finding(input: &ReviewInput) -> Vec<Finding> {
+    let power_zones: Vec<&ZoneFact> = input
+        .zones
+        .iter()
+        .filter(|z| matches!(net_kind(&z.net), NetKind::Ground | NetKind::Rail))
+        .collect();
+    if power_zones.is_empty() {
+        return vec![];
+    }
+    let pths: Vec<&PadFact> = input
+        .pads
+        .iter()
+        .filter(|p| p.kind == "pth" && net_kind(&p.net) != NetKind::Empty)
+        .collect();
+    if pths.is_empty() {
+        return vec![];
+    }
+    let have_fill = power_zones.iter().any(|z| !z.fills.is_empty());
+    let mut missing = Vec::new();
+    let mut unexpected = Vec::new();
+    let mut ok_n = 0usize;
+    for pad in &pths {
+        let pad_kind = net_kind(&pad.net);
+        let mut pad_ok = true;
+        for zone in &power_zones {
+            for &layer in &zone.layer_ids {
+                let layer_name = copper::layer_name(layer);
+                let same_net = pad.net == zone.net;
+                let on_layer = pad.layer_ids.contains(&layer);
+                if same_net && !on_layer {
+                    missing.push(format!(
+                        "{}.{} missing {} — {} pour cannot attach",
+                        pad.reference, pad.net, layer_name, zone.net
+                    ));
+                    pad_ok = false;
+                    continue;
+                }
+                if !have_fill {
+                    continue;
+                }
+                match pour_attach(
+                    pad.x_mm,
+                    pad.y_mm,
+                    pad.radius_mm,
+                    fill_for_layer(zone, layer),
+                ) {
+                    PourAttach::Unknown => {}
+                    PourAttach::Thermal | PourAttach::Solid if same_net => {}
+                    PourAttach::Clearance if same_net => {
+                        unexpected.push(format!(
+                            "{}.{} clearance on {} ({}) — expected thermals",
+                            pad.reference, pad.net, layer_name, zone.net
+                        ));
+                        pad_ok = false;
+                    }
+                    PourAttach::Clearance => {}
+                    PourAttach::Thermal | PourAttach::Solid => {
+                        unexpected.push(format!(
+                            "{}.{} connected to {} on {} — should be clearance",
+                            pad.reference, pad.net, zone.net, layer_name
+                        ));
+                        pad_ok = false;
+                    }
+                }
+            }
+        }
+        if pad_ok && matches!(pad_kind, NetKind::Ground | NetKind::Rail | NetKind::Signal) {
+            ok_n += 1;
+        }
+    }
+    if missing.is_empty() && unexpected.is_empty() {
+        let fill_note = if have_fill {
+            "thermals on matching pours, clearance on the others"
+        } else {
+            "copper on matching pour layers (fill not in IPC — spokes vs clearance not sampled)"
+        };
+        return vec![Finding {
+            severity: Severity::Ok,
+            id: "pth_pour".into(),
+            detail: format!("{ok_n} PTH pad(s) vs power pours: {fill_note}."),
+        }];
+    }
+    let mut problems = missing;
+    problems.extend(unexpected);
+    let show: Vec<&str> = problems.iter().map(String::as_str).take(8).collect();
+    let extra = if problems.len() > 8 {
+        format!(" +{} more", problems.len() - 8)
+    } else {
+        String::new()
+    };
+    vec![Finding {
+        severity: Severity::Fail,
+        id: "pth_pour".into(),
+        detail: format!("{}{extra}.", show.join("; ")),
     }]
 }
 
@@ -528,6 +703,20 @@ mod tests {
             x_mm: x,
             y_mm: y,
             kind: "smd".into(),
+            layer_ids: vec![3],
+            radius_mm: 0.4,
+        }
+    }
+
+    fn pth(r: &str, net: &str, x: f64, y: f64, layers: &[i32]) -> PadFact {
+        PadFact {
+            reference: r.into(),
+            net: net.into(),
+            x_mm: x,
+            y_mm: y,
+            kind: "pth".into(),
+            layer_ids: layers.to_vec(),
+            radius_mm: 1.4,
         }
     }
 
@@ -543,7 +732,18 @@ mod tests {
         ZoneFact {
             net: net.into(),
             layer_ids: layers.to_vec(),
+            connection: ZoneConnectStyle::PthThermal,
+            fills: vec![],
         }
+    }
+
+    fn square(cx: f64, cy: f64, half: f64) -> Vec<(f64, f64)> {
+        vec![
+            (cx - half, cy - half),
+            (cx + half, cy - half),
+            (cx + half, cy + half),
+            (cx - half, cy + half),
+        ]
     }
 
     /// Typical 4-layer LED cell: In1 5V, In2+B GND, via at the cap.
@@ -562,11 +762,7 @@ mod tests {
             copper_layers: 4,
             pads,
             vias: vec![via("GND", 2.9, 0.6), via("5V", 2.1, 0.5)],
-            zones: vec![
-                zone("5V", &[4]),
-                zone("GND", &[5]),
-                zone("GND", &[34]),
-            ],
+            zones: vec![zone("5V", &[4]), zone("GND", &[5]), zone("GND", &[34])],
         }
     }
 
@@ -659,5 +855,65 @@ mod tests {
         assert_eq!(stack_index(34, 4), Some(3));
         assert_eq!(stack_index(3, 4), Some(0));
         assert_eq!(stack_index(4, 4), Some(1));
+    }
+
+    #[test]
+    fn fivev_pth_missing_in1_fails() {
+        let mut i = good_panel();
+        i.pads.push(pth("W1", "5V", 0.0, 10.0, &[3, 34]));
+        let r = review(&i);
+        let f = r.findings.iter().find(|f| f.id == "pth_pour").unwrap();
+        assert_eq!(f.severity, Severity::Fail);
+        assert!(f.detail.contains("W1"));
+        assert!(f.detail.contains("In1.Cu"));
+    }
+
+    #[test]
+    fn power_pth_on_pour_layers_is_ok_without_fill() {
+        let mut i = good_panel();
+        i.pads.push(pth("W1", "5V", 0.0, 10.0, &[3, 4, 5, 34]));
+        i.pads.push(pth("W2", "GND", 10.0, 10.0, &[3, 4, 5, 34]));
+        i.pads
+            .push(pth("W3", "DATA_IN", 20.0, 10.0, &[3, 4, 5, 34]));
+        let r = review(&i);
+        let f = r.findings.iter().find(|f| f.id == "pth_pour").unwrap();
+        assert_eq!(f.severity, Severity::Ok, "{f:?}");
+        assert!(f.detail.contains("fill not in IPC"));
+    }
+
+    #[test]
+    fn fill_classifies_clearance_and_thermal() {
+        // Donut: 20 mm square with a 3.2 mm hole — clearance around a 1.4 mm pad.
+        let donut = vec![square(0.0, 0.0, 10.0), square(0.0, 0.0, 1.6)];
+        assert_eq!(pour_attach(0.0, 0.0, 1.4, &donut), PourAttach::Clearance);
+
+        // Cross of spokes through the gap (1.4+0.15 ring hits 4 of 16).
+        let mut thermal = donut.clone();
+        thermal.push(vec![(-0.2, -3.0), (0.2, -3.0), (0.2, 3.0), (-0.2, 3.0)]);
+        thermal.push(vec![(-3.0, -0.2), (3.0, -0.2), (3.0, 0.2), (-3.0, 0.2)]);
+        assert_eq!(pour_attach(0.0, 0.0, 1.4, &thermal), PourAttach::Thermal);
+    }
+
+    #[test]
+    fn signal_pth_thermal_into_gnd_fails() {
+        let mut i = good_panel();
+        i.pads.push(pth("W3", "DATA_IN", 0.0, 0.0, &[3, 4, 5, 34]));
+        i.zones
+            .iter_mut()
+            .find(|z| z.net == "GND" && z.layer_ids == vec![5])
+            .unwrap()
+            .fills = vec![copper::ZoneFill {
+            layer_id: 5,
+            contours: vec![
+                square(0.0, 0.0, 10.0),
+                square(0.0, 0.0, 1.6),
+                vec![(-0.2, -3.0), (0.2, -3.0), (0.2, 3.0), (-0.2, 3.0)],
+                vec![(-3.0, -0.2), (3.0, -0.2), (3.0, 0.2), (-3.0, 0.2)],
+            ],
+        }];
+        let r = review(&i);
+        let f = r.findings.iter().find(|f| f.id == "pth_pour").unwrap();
+        assert_eq!(f.severity, Severity::Fail);
+        assert!(f.detail.contains("DATA_IN"));
     }
 }
