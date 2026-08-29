@@ -1,8 +1,10 @@
 //! Short layout-physics review. Reads the open board; does not place copper.
 //!
-//! Checks return path (ground pour), power pour, plane adjacency, and a via
-//! next to each decoupling-cap GND pad. Does **not** nag about 90° corners,
-//! silk overlap, or DRC clearance — those are myths or `check_drc`.
+//! Checks return path (ground pour), power pour, plane adjacency, a via
+//! next to each decoupling-cap GND pad, SK6812 daisy (DOUT→DIN), and
+//! whether a 0603 GND pad sits next to the companion LED pin 1. Does
+//! **not** nag about 90° corners, silk overlap, or DRC clearance — those
+//! are myths or `check_drc`.
 
 use serde::Serialize;
 
@@ -12,6 +14,9 @@ use crate::pads::PadRow;
 
 const CAP_VIA_MM: f64 = 3.0;
 const CAP_VIA_WARN_MISSING: usize = 1;
+/// Max centre distance from a decoupling cap to its companion LED pin 1.
+/// Between a 12.7 mm LED pitch and the bulk-cap cluster at the connector.
+const CAP_COMPANION_MM: f64 = 8.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -49,6 +54,7 @@ pub struct ReviewInput {
 #[derive(Debug, Clone)]
 pub struct PadFact {
     pub reference: String,
+    pub pin: String,
     pub net: String,
     pub x_mm: f64,
     pub y_mm: f64,
@@ -97,6 +103,8 @@ pub fn review(input: &ReviewInput) -> ReviewReport {
     findings.extend(adjacent_planes_finding(input));
     findings.extend(cap_via_finding(input));
     findings.extend(pth_pour_finding(input));
+    findings.extend(daisy_finding(input));
+    findings.extend(cap_polarity_finding(input));
     findings.extend(signal_pour_finding(input));
     findings.extend(split_gnd_finding(input));
 
@@ -155,6 +163,7 @@ fn pad_fact(p: PadRow) -> PadFact {
         .collect();
     PadFact {
         reference: p.reference,
+        pin: p.pin,
         net: p.net,
         x_mm: p.x_mm,
         y_mm: p.y_mm,
@@ -598,6 +607,249 @@ fn pth_pour_finding(input: &ReviewInput) -> Vec<Finding> {
     }]
 }
 
+#[derive(Debug, Clone)]
+struct LedCell {
+    reference: String,
+    pin1_x: f64,
+    pin1_y: f64,
+    pin2_net: String,
+    pin4_net: String,
+}
+
+fn pad_of<'a>(pads: &[&'a PadFact], pin: &str) -> Option<&'a PadFact> {
+    pads.iter().copied().find(|p| p.pin == pin)
+}
+
+fn led_cells(input: &ReviewInput) -> Vec<LedCell> {
+    let mut by_ref: std::collections::BTreeMap<&str, Vec<&PadFact>> =
+        std::collections::BTreeMap::new();
+    for p in &input.pads {
+        if p.kind != "npth" {
+            by_ref.entry(p.reference.as_str()).or_default().push(p);
+        }
+    }
+    let mut out = Vec::new();
+    for (r, pads) in by_ref {
+        if pads.len() != 4 {
+            continue;
+        }
+        let Some(p1) = pad_of(&pads, "1") else { continue };
+        let Some(p2) = pad_of(&pads, "2") else { continue };
+        let Some(p3) = pad_of(&pads, "3") else { continue };
+        if pad_of(&pads, "4").is_none() {
+            continue;
+        }
+        if net_kind(&p1.net) != NetKind::Ground || net_kind(&p3.net) != NetKind::Rail {
+            continue;
+        }
+        out.push(LedCell {
+            reference: r.to_string(),
+            pin1_x: p1.x_mm,
+            pin1_y: p1.y_mm,
+            pin2_net: p2.net.clone(),
+            pin4_net: pad_of(&pads, "4").unwrap().net.clone(),
+        });
+    }
+    out
+}
+
+fn net_others<'a>(
+    input: &'a ReviewInput,
+    net: &str,
+    self_ref: &str,
+    self_pin: &str,
+) -> Vec<&'a PadFact> {
+    if net_kind(net) == NetKind::Empty {
+        return vec![];
+    }
+    input
+        .pads
+        .iter()
+        .filter(|p| p.net == net && !(p.reference == self_ref && p.pin == self_pin))
+        .collect()
+}
+
+fn is_led_pin(leds: &std::collections::HashSet<&str>, pad: &PadFact, pin: &str) -> bool {
+    leds.contains(pad.reference.as_str()) && pad.pin == pin
+}
+
+fn daisy_finding(input: &ReviewInput) -> Vec<Finding> {
+    let cells = led_cells(input);
+    if cells.is_empty() {
+        return vec![];
+    }
+    let led_refs: std::collections::HashSet<&str> =
+        cells.iter().map(|c| c.reference.as_str()).collect();
+    let mut starts = Vec::new();
+    for cell in &cells {
+        let others = net_others(input, &cell.pin2_net, &cell.reference, "2");
+        let from_led_out = others.iter().any(|p| is_led_pin(&led_refs, p, "4"));
+        if !from_led_out {
+            starts.push(cell.reference.as_str());
+        }
+    }
+    if starts.len() != 1 {
+        return vec![Finding {
+            severity: Severity::Fail,
+            id: "daisy".into(),
+            detail: format!(
+                "{} LED cells but {} daisy start(s) (DIN not fed by another LED DOUT): {}. Need exactly one.",
+                cells.len(),
+                starts.len(),
+                starts.join(", ")
+            ),
+        }];
+    }
+    let start = starts[0];
+    let by_ref: std::collections::HashMap<&str, &LedCell> =
+        cells.iter().map(|c| (c.reference.as_str(), c)).collect();
+    let mut chain = vec![start.to_string()];
+    let mut seen = std::collections::HashSet::new();
+    seen.insert(start);
+    let mut cur = start;
+    loop {
+        let cell = by_ref[cur];
+        let others = net_others(input, &cell.pin4_net, cur, "4");
+        let nexts: Vec<&&PadFact> = others
+            .iter()
+            .filter(|p| is_led_pin(&led_refs, p, "2"))
+            .collect();
+        if nexts.is_empty() {
+            break;
+        }
+        if nexts.len() != 1 || others.len() != 1 {
+            return vec![Finding {
+                severity: Severity::Fail,
+                id: "daisy".into(),
+                detail: format!(
+                    "{cur}.4 hop is not a single DOUT→DIN (net {}).",
+                    cell.pin4_net
+                ),
+            }];
+        }
+        let next = nexts[0].reference.as_str();
+        if !seen.insert(next) {
+            return vec![Finding {
+                severity: Severity::Fail,
+                id: "daisy".into(),
+                detail: format!("Daisy cycles at {next}."),
+            }];
+        }
+        chain.push(next.to_string());
+        cur = next;
+    }
+    let leftover: Vec<&str> = cells
+        .iter()
+        .map(|c| c.reference.as_str())
+        .filter(|r| !seen.contains(r))
+        .collect();
+    if !leftover.is_empty() {
+        let show: Vec<&str> = leftover.iter().copied().take(8).collect();
+        let extra = if leftover.len() > 8 {
+            format!(" +{} more", leftover.len() - 8)
+        } else {
+            String::new()
+        };
+        return vec![Finding {
+            severity: Severity::Fail,
+            id: "daisy".into(),
+            detail: format!(
+                "{}/{} LEDs in the daisy from {}. Left out: {}{extra}.",
+                chain.len(),
+                cells.len(),
+                start,
+                show.join(", ")
+            ),
+        }];
+    }
+    let last = chain.last().unwrap();
+    vec![Finding {
+        severity: Severity::Ok,
+        id: "daisy".into(),
+        detail: format!(
+            "{} LEDs in one daisy: {start}.2 ← … → {last}.4 (open).",
+            chain.len()
+        ),
+    }]
+}
+
+fn cap_polarity_finding(input: &ReviewInput) -> Vec<Finding> {
+    let leds = led_cells(input);
+    if leds.is_empty() {
+        return vec![];
+    }
+    let mut by_ref: std::collections::BTreeMap<&str, Vec<&PadFact>> =
+        std::collections::BTreeMap::new();
+    for p in &input.pads {
+        if is_cap(&p.reference) && p.kind != "npth" {
+            by_ref.entry(p.reference.as_str()).or_default().push(p);
+        }
+    }
+    let mut checked = 0usize;
+    let mut swapped = Vec::new();
+    for (r, pads) in &by_ref {
+        if pads.len() != 2 {
+            continue;
+        }
+        let kinds: Vec<NetKind> = pads.iter().map(|p| net_kind(&p.net)).collect();
+        if !(kinds.contains(&NetKind::Ground) && kinds.contains(&NetKind::Rail)) {
+            continue;
+        }
+        let Some((near_led, d_led)) = leds
+            .iter()
+            .map(|led| {
+                let d = pads
+                    .iter()
+                    .map(|p| dist(p.x_mm, p.y_mm, led.pin1_x, led.pin1_y))
+                    .fold(f64::INFINITY, f64::min);
+                (led, d)
+            })
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+        else {
+            continue;
+        };
+        if d_led > CAP_COMPANION_MM {
+            continue;
+        }
+        checked += 1;
+        let closer = pads.iter().min_by(|a, b| {
+            dist(a.x_mm, a.y_mm, near_led.pin1_x, near_led.pin1_y)
+                .total_cmp(&dist(b.x_mm, b.y_mm, near_led.pin1_x, near_led.pin1_y))
+        });
+        if closer.is_some_and(|p| net_kind(&p.net) != NetKind::Ground) {
+            swapped.push(*r);
+        }
+    }
+    if checked == 0 {
+        return vec![];
+    }
+    if swapped.is_empty() {
+        return vec![Finding {
+            severity: Severity::Ok,
+            id: "cap_polarity".into(),
+            detail: format!(
+                "All {checked} decoupling caps have the GND pad next to the companion LED pin 1."
+            ),
+        }];
+    }
+    let show: Vec<&str> = swapped.iter().copied().take(8).collect();
+    let extra = if swapped.len() > 8 {
+        format!(" +{} more", swapped.len() - 8)
+    } else {
+        String::new()
+    };
+    vec![Finding {
+        severity: Severity::Fail,
+        id: "cap_polarity".into(),
+        detail: format!(
+            "{}/{} caps have GND next to LED pin 1. Swapped (5V pad closer): {}{extra}. EasyEDA 1/2 has no polarity — GND is the pad beside the LED GND.",
+            checked - swapped.len(),
+            checked,
+            show.join(", ")
+        ),
+    }]
+}
+
 fn split_gnd_finding(input: &ReviewInput) -> Vec<Finding> {
     let mut names: Vec<String> = input
         .pads
@@ -697,8 +949,13 @@ mod tests {
     use super::*;
 
     fn pad(r: &str, net: &str, x: f64, y: f64) -> PadFact {
+        pad_at(r, "1", net, x, y)
+    }
+
+    fn pad_at(r: &str, pin: &str, net: &str, x: f64, y: f64) -> PadFact {
         PadFact {
             reference: r.into(),
+            pin: pin.into(),
             net: net.into(),
             x_mm: x,
             y_mm: y,
@@ -711,6 +968,7 @@ mod tests {
     fn pth(r: &str, net: &str, x: f64, y: f64, layers: &[i32]) -> PadFact {
         PadFact {
             reference: r.into(),
+            pin: "1".into(),
             net: net.into(),
             x_mm: x,
             y_mm: y,
@@ -718,6 +976,16 @@ mod tests {
             layer_ids: layers.to_vec(),
             radius_mm: 1.4,
         }
+    }
+
+    /// SK6812 cell: 1=GND, 2=DIN, 3=5V, 4=DOUT.
+    fn led(r: &str, x: f64, y: f64, din: &str, dout: &str) -> Vec<PadFact> {
+        vec![
+            pad_at(r, "1", "GND", x - 1.0, y - 1.0),
+            pad_at(r, "2", din, x + 1.0, y - 1.0),
+            pad_at(r, "3", "5V", x + 1.0, y + 1.0),
+            pad_at(r, "4", dout, x - 1.0, y + 1.0),
+        ]
     }
 
     fn via(net: &str, x: f64, y: f64) -> ViaFact {
@@ -915,5 +1183,78 @@ mod tests {
         let f = r.findings.iter().find(|f| f.id == "pth_pour").unwrap();
         assert_eq!(f.severity, Severity::Fail);
         assert!(f.detail.contains("DATA_IN"));
+    }
+
+    fn daisy_panel(extra: Vec<PadFact>) -> ReviewInput {
+        let mut i = good_panel();
+        i.pads.extend(extra);
+        i
+    }
+
+    #[test]
+    fn three_led_daisy_is_ok() {
+        let mut pads = led("U30", 80.0, 0.0, "IN", "H1");
+        pads.extend(led("U31", 90.0, 0.0, "H1", "H2"));
+        pads.extend(led("U32", 100.0, 0.0, "H2", ""));
+        let r = review(&daisy_panel(pads));
+        let f = r.findings.iter().find(|f| f.id == "daisy").unwrap();
+        assert_eq!(f.severity, Severity::Ok, "{f:?}");
+        assert!(f.detail.contains("3 LEDs"));
+        assert!(f.detail.contains("U30.2"));
+        assert!(f.detail.contains("U32.4"));
+    }
+
+    #[test]
+    fn branched_daisy_hop_fails() {
+        let mut pads = led("U30", 80.0, 0.0, "IN", "H1");
+        pads.extend(led("U31", 90.0, 0.0, "H1", "H2"));
+        pads.extend(led("U32", 100.0, 0.0, "H1", ""));
+        let r = review(&daisy_panel(pads));
+        let f = r.findings.iter().find(|f| f.id == "daisy").unwrap();
+        assert_eq!(f.severity, Severity::Fail, "{f:?}");
+        assert!(f.detail.contains("U30.4") || f.detail.contains("start"));
+    }
+
+    #[test]
+    fn leftover_led_cycle_fails() {
+        let mut pads = led("U30", 80.0, 0.0, "IN", "H1");
+        pads.extend(led("U31", 90.0, 0.0, "H1", ""));
+        pads.extend(led("U32", 110.0, 0.0, "CY", "CY2"));
+        pads.extend(led("U33", 120.0, 0.0, "CY2", "CY"));
+        let r = review(&daisy_panel(pads));
+        let f = r.findings.iter().find(|f| f.id == "daisy").unwrap();
+        assert_eq!(f.severity, Severity::Fail, "{f:?}");
+        assert!(f.detail.contains("Left out") || f.detail.contains("U32"));
+    }
+
+    #[test]
+    fn cap_gnd_beside_led_pin1_is_ok() {
+        let mut pads = led("U30", 80.0, 0.0, "IN", "");
+        // LED pin 1 at (79, -1). GND closer than 5V.
+        pads.push(pad_at("C20", "1", "5V", 81.0, 0.0));
+        pads.push(pad_at("C20", "2", "GND", 78.8, -1.0));
+        let r = review(&daisy_panel(pads));
+        let f = r.findings.iter().find(|f| f.id == "cap_polarity").unwrap();
+        assert_eq!(f.severity, Severity::Ok, "{f:?}");
+    }
+
+    #[test]
+    fn cap_5v_beside_led_pin1_fails() {
+        let mut pads = led("U30", 80.0, 0.0, "IN", "");
+        pads.push(pad_at("C20", "1", "5V", 78.8, -1.0));
+        pads.push(pad_at("C20", "2", "GND", 83.0, 0.0));
+        let r = review(&daisy_panel(pads));
+        let f = r.findings.iter().find(|f| f.id == "cap_polarity").unwrap();
+        assert_eq!(f.severity, Severity::Fail, "{f:?}");
+        assert!(f.detail.contains("C20"));
+    }
+
+    #[test]
+    fn bulk_cap_far_from_led_is_skipped() {
+        let mut pads = led("U30", 80.0, 0.0, "IN", "");
+        pads.push(pad_at("C99", "1", "5V", 200.0, 200.0));
+        pads.push(pad_at("C99", "2", "GND", 201.0, 200.0));
+        let r = review(&daisy_panel(pads));
+        assert!(r.findings.iter().all(|f| f.id != "cap_polarity"));
     }
 }

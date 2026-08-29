@@ -94,12 +94,24 @@ impl KicadMcp {
     }
 
     #[tool(
-        description = "Tracks and vias currently on the board (id, net, layer, endpoints in mm). Use track/via id with ripup_wire."
+        description = "Tracks and vias currently on the board (id, net, layer, endpoints in mm). Optional net filter (e.g. `\"DATA_IN\"`) so you are not dumped every segment. Use track/via id with ripup_wire."
     )]
-    async fn get_routing_scene(&self) -> Result<CallToolResult, McpError> {
-        with_kicad(self, |k| async move {
-            let tracks = k.tracks().await?;
-            let vias = k.vias().await?;
+    async fn get_routing_scene(
+        &self,
+        Parameters(args): Parameters<GetRoutingSceneArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        with_kicad(self, move |k| async move {
+            let want = args
+                .net
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty());
+            let mut tracks = k.tracks().await?;
+            let mut vias = k.vias().await?;
+            if let Some(net) = want {
+                tracks.retain(|t| t.net.as_deref() == Some(net));
+                vias.retain(|v| v.net.as_deref() == Some(net));
+            }
             Ok(serde_json::json!({ "tracks": tracks, "vias": vias }))
         })
         .await
@@ -191,7 +203,7 @@ impl KicadMcp {
     }
 
     #[tool(
-        description = "Short layout-physics review of the open board (reads only). Return path / GND pour, power pour, whether 5V and GND sit on adjacent layers, a GND via within 3 mm of each decoupling-cap GND pad, and every PTH (wire pad) against those pours: matching net needs the pad on that layer plus thermals (or solid); other power pours and signal PTHs need clearance. Not DRC and not connectivity — those are check_drc and check_board. Does not flag 90° corners or silk overlap. Call after copper, before claiming the board is done. Report: ok, verdict, summary, findings[], not_checked[]."
+        description = "Short layout-physics review of the open board (reads only). Return path / GND pour, power pour, whether 5V and GND sit on adjacent layers, a GND via within 3 mm of each decoupling-cap GND pad, every PTH against those pours, SK6812 daisy (DOUT→DIN, one start, end open), and whether each 0603 GND pad sits next to the companion LED pin 1. Not DRC and not connectivity — those are check_drc and check_board. Does not flag 90° corners or silk overlap. Call after copper, before claiming the board is done. Report: ok, verdict, summary, findings[], not_checked[]."
     )]
     async fn review_board(&self) -> Result<CallToolResult, McpError> {
         with_kicad(self, |k| async move {
@@ -201,7 +213,7 @@ impl KicadMcp {
     }
 
     #[tool(
-        description = "EasyEDA pin numbers and pin_name (electrical function) for a downloaded template. Source of truth for connect_many nets. Do not use a manufacturer datasheet unless a logic check shows the EasyEDA names cannot be right. Call after download_lcsc_part, or for an existing list_parts template. Builtins have pad numbers only."
+        description = "EasyEDA pin numbers and pin_name (electrical function) for a downloaded template. template may be the full list_parts name or just the LCSC C-number (C5348912). Source of truth for connect_many nets. Do not use a manufacturer datasheet unless a logic check shows the EasyEDA names cannot be right. Call after download_lcsc_part, or for an existing list_parts template. Builtins have pad numbers only."
     )]
     async fn get_part_pins(
         &self,
@@ -1567,7 +1579,7 @@ pub struct MakeMountingHoleArgs {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct GetPartPinsArgs {
-    /// Template from `list_parts` / `download_lcsc_part`, e.g. `C25804_R0603`.
+    /// Template from `list_parts` / `download_lcsc_part`, or just the LCSC C-number (`C5348912`).
     pub template: String,
 }
 
@@ -1610,6 +1622,12 @@ pub struct PlaceMatrixArgs {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct RefArgs {
     pub reference: String,
+}
+
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+pub struct GetRoutingSceneArgs {
+    /// Only tracks and vias on this net, e.g. `"DATA_IN"`. Omit for the whole board.
+    pub net: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
@@ -1891,7 +1909,7 @@ impl ServerHandler for KicadMcp {
              generated parametrically: list_parts writes the defaults (WirePad_PTH 2.5/1.5 mm, \
              MountingHole_M3_NPTH 3.2 mm); make_wire_pad / make_mounting_hole write any other size. \
              Pin names and functions come from EasyEDA (`download_lcsc_part` returns pins; `get_part_pins` \
-             for already downloaded templates). Use those pin_name values for connect_many. \
+             for already downloaded templates — C-number is enough). Use those pin_name values for connect_many. \
              Manufacturer datasheets only after a logic check that EasyEDA cannot be right. \
              Start with board_summary. Prefer download_lcsc_part then place_matrix/place_parts for grids. \
              The pink A4 frame is the drawing sheet, not the PCB. Board size is an Edge.Cuts rectangle \
@@ -1907,9 +1925,9 @@ impl ServerHandler for KicadMcp {
              layers on the padstack) — verify placement with it instead of guessing. check_placement is the hard audit: template pads recomputed at \
              anchor+rotation vs the baked board pads; mirrored/mis-rotated/stale parts fail with mm deltas. \
              Run it after placing or moving. render_board writes a PNG (kicad-cli pcb render) for visual checks \
-             (no 3D bodies on EasyEDA parts). Copper: get_routing_scene then ripup_wire with segment_id. \
+             (no 3D bodies on EasyEDA parts). Copper: get_routing_scene (optional net) then ripup_wire with segment_id. \
              autoroute_nets calls the Routing Tools CLI, reloads, and refills zones (no Ctrl+Z for that step). \
-             After copper, check_drc (kicad-cli), check_board, then review_board (return path / pours / cap vias / PTH thermals — not 90° corners). \
+             After copper, check_drc (kicad-cli), check_board, then review_board (return path / pours / cap vias / PTH thermals / daisy / cap polarity — not 90° corners). \
              Do not edit .kicad_pcb by hand. \
              export_manufacturing writes JLCPCB files: <stem>_gerbers.zip + _bom.csv + _cpl.csv (needs kicad-cli). \
              {write_note}"

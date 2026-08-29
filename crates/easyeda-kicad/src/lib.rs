@@ -821,18 +821,47 @@ pub fn write_library_files(
     Ok(name)
 }
 
+/// Resolve a `list_parts` template name or a bare LCSC C-number
+/// (`C5348912`) to the unique `.kicad_mod` stem in `pretty_dir`.
+pub fn resolve_template(pretty_dir: &Path, query: &str) -> Result<String, String> {
+    let q = query.trim();
+    if q.is_empty() {
+        return Err("template is empty".into());
+    }
+    let exact_mod = pretty_dir.join(format!("{q}.kicad_mod"));
+    let exact_pins = pretty_dir.join(format!("{q}.pins.json"));
+    if exact_mod.is_file() || exact_pins.is_file() {
+        return Ok(q.to_string());
+    }
+    let names = list_pretty_footprints(pretty_dir).map_err(|e| e.to_string())?;
+    let prefix = format!("{q}_");
+    let hits: Vec<&str> = names
+        .iter()
+        .filter(|n| n.as_str() == q || n.starts_with(&prefix))
+        .map(String::as_str)
+        .collect();
+    match hits.as_slice() {
+        [] => Err(format!(
+            "no template named {q} in jlcpcb_parts — call download_lcsc_part or list_parts first (a C-number like C5348912 is enough)"
+        )),
+        [one] => Ok((*one).to_string()),
+        many => Err(format!(
+            "several templates match {q}: {}. Use the full list_parts name.",
+            many.join(", ")
+        )),
+    }
+}
+
 /// Load EasyEDA pin names for a template. Prefers `{template}.pins.json`
 /// written by `download_lcsc_part`; falls back to the `.kicad_sym` names
-/// plus pad numbers from the `.kicad_mod`.
+/// plus pad numbers from the `.kicad_mod`. `template` may be the full
+/// pretty name or just the LCSC C-number.
 pub fn load_part_pins(
     pretty_dir: &Path,
     sym_path: &Path,
     template: &str,
 ) -> Result<PartPins, String> {
-    let template = template.trim();
-    if template.is_empty() {
-        return Err("template is empty".into());
-    }
+    let template = resolve_template(pretty_dir, template)?;
     let pins_path = pretty_dir.join(format!("{template}.pins.json"));
     if pins_path.is_file() {
         let text = std::fs::read_to_string(&pins_path).map_err(|e| e.to_string())?;
@@ -851,7 +880,7 @@ pub fn load_part_pins(
     }
     let names = if sym_path.is_file() {
         let sym = std::fs::read_to_string(sym_path).map_err(|e| e.to_string())?;
-        parse_symbol_pin_names(&sym, template)
+        parse_symbol_pin_names(&sym, &template)
     } else {
         HashMap::new()
     };
@@ -871,7 +900,7 @@ pub fn load_part_pins(
         "kicad_sym"
     };
     Ok(PartPins {
-        lcsc_code: lcsc_code_from_template(template),
+        lcsc_code: lcsc_code_from_template(&template),
         name: template.to_string(),
         template: template.to_string(),
         source: source.into(),
@@ -1150,6 +1179,38 @@ mod tests {
         let gnd = loaded.pins.iter().find(|p| p.pin_name.as_deref() == Some("GND"));
         let vcc = loaded.pins.iter().find(|p| p.pin_name.as_deref() == Some("3V3"));
         assert!(gnd.is_some() && vcc.is_some());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn resolve_c_number_to_unique_pretty_name() {
+        let dir = std::env::temp_dir().join(format!("kicad-mcp-resolve-{}", std::process::id()));
+        let pretty = dir.join("jlcpcb_parts.pretty");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&pretty).unwrap();
+        std::fs::write(pretty.join("C5348912_LED-SMD.kicad_mod"), "(footprint \"x\")\n").unwrap();
+        assert_eq!(
+            resolve_template(&pretty, "C5348912").unwrap(),
+            "C5348912_LED-SMD"
+        );
+        assert_eq!(
+            resolve_template(&pretty, "C5348912_LED-SMD").unwrap(),
+            "C5348912_LED-SMD"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn resolve_c_number_ambiguous() {
+        let dir = std::env::temp_dir().join(format!("kicad-mcp-resolve2-{}", std::process::id()));
+        let pretty = dir.join("jlcpcb_parts.pretty");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&pretty).unwrap();
+        std::fs::write(pretty.join("C5348912_A.kicad_mod"), "(footprint \"a\")\n").unwrap();
+        std::fs::write(pretty.join("C5348912_B.kicad_mod"), "(footprint \"b\")\n").unwrap();
+        let err = resolve_template(&pretty, "C5348912").unwrap_err();
+        assert!(err.contains("several"), "{err}");
+        assert!(err.contains("C5348912_A"), "{err}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

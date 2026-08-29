@@ -141,7 +141,8 @@ die Dateien nicht von Hand anfasst.
    und liefert `pins: [{number, pin_name}]` (EasyEDA-Funktion).
 2. `list_parts` nennt die Template-Namen für `place_footprint`.
    `get_part_pins` liest dieselben EasyEDA-Namen für ein schon
-   geladenes Template (`{template}.pins.json`).
+   geladenes Template (`{template}.pins.json`); die LCSC-C-Nummer
+   (`C5348912`) reicht, wenn sie eindeutig ist.
 3. `place_footprint` / `place_parts` (max. 150, ein Undo) /
    `place_matrix` (Raster: Origin = Zelle 0,0, +x Spalten, +y Zeilen,
    Pitch Mitte-zu-Mitte).
@@ -212,13 +213,14 @@ Polarität — GND vs. Rail vom Nachbarpad.
 - `set_copper_zone` — Rechteck oder Polygon; Netz z. B. `5V` / `GND`;
   Lage `F.Cu` / `In1.Cu` / `In2.Cu` / `B.Cu`; Pads solid; `thermal=true` PTH-Speichen; `thermal_smd=true` auch SMD (LED/Elko); `remove_islands=true` tote Kupferinseln weg; danach Refill
 - `clear_zones` — alle Kupferzonen löschen (Bahnen bleiben)
-- `ripup_wire` — `segment_id` aus `get_routing_scene`
+- `ripup_wire` — `segment_id` aus `get_routing_scene` (optional `net`)
 - `autoroute_nets` — genannte Netze über die Plugin-CLI, dann Reload
   und Zonen-Refill
 - `check_drc` — `kicad-cli pcb drc` (Clearance, Silk, Löcher); speichert
 - `review_board` — liest nur: GND/Power-Pour, benachbarte Lagen, Via
   am Elko-GND (3 mm), PTH-Drahtpads gegen die Flächen (Thermals vs.
-  Abstand). Kein DRC, keine 90°-Ecken. Vor „fertig“.
+  Abstand), SK6812-Daisy (DOUT→DIN), Elko-GND neben LED-Pin 1.
+  Kein DRC, keine 90°-Ecken. Vor „fertig“.
 
 ### Silk-Text
 
@@ -250,11 +252,11 @@ Keine parallelen Copper-Writes: KiCad `BeginCommit` verträgt das nicht.
 | `get_nets` | Lesen — Netze und Pads |
 | `get_pads` | Lesen — gebackene Pad-Wahrheit (Position, Netz, Drehung, Lagen) |
 | `check_placement` | Lesen — hartes OK/Fail: Template-Pads vs. gebackene Pads |
-| `get_routing_scene` | Lesen — Tracks/Vias + IDs |
+| `get_routing_scene` | Lesen — Tracks/Vias + IDs; optional `net` |
 | `list_parts` | Lesen — Templates inkl. Builtins |
-| `get_part_pins` | Lesen — EasyEDA `number` + `pin_name` |
+| `get_part_pins` | Lesen — EasyEDA `number` + `pin_name` (auch C-Nummer) |
 | `check_board` | Lesen — Pads ohne Netz |
-| `review_board` | Lesen — kurzer Physik-Report (Pour, Rückweg, Elko-Via, PTH-Thermals) |
+| `review_board` | Lesen — Physik-Report (Pour, Rückweg, Elko-Via, PTH, Daisy, Elko-Lage) |
 | `download_lcsc_part` | Schreiben — EasyEDA → Library + Pins |
 | `make_wire_pad` | Schreiben — parametrisches PTH-Drahtpad-Template |
 | `make_mounting_hole` | Schreiben — parametrisches NPTH-Loch-Template |

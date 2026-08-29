@@ -139,7 +139,8 @@ edit them by hand.
    returns `pins: [{number, pin_name}]` (EasyEDA function).
 2. `list_parts` names the templates `place_footprint` wants.
    `get_part_pins` rereads those EasyEDA names for an already downloaded
-   template (`{template}.pins.json`).
+   template (`{template}.pins.json`); the LCSC C-number (`C5348912`) is
+   enough when it is unique.
 3. `place_footprint` / `place_parts` (max 150, one undo) /
    `place_matrix` (grid: origin = cell 0,0, +x columns, +y rows,
    pitch centre-to-centre).
@@ -207,13 +208,14 @@ rail from the companion pad.
 - `set_copper_zone` — rectangle or polygon; net e.g. `5V` / `GND`;
   layer `F.Cu` / `In1.Cu` / `In2.Cu` / `B.Cu`; pads solid unless `thermal=true` (PTH) or `thermal_smd=true` (SMD+PTH); `remove_islands=true` drops isolated slivers; then refill
 - `clear_zones` — delete copper zones (tracks stay)
-- `ripup_wire` — `segment_id` from `get_routing_scene`
+- `ripup_wire` — `segment_id` from `get_routing_scene` (optional `net`)
 - `autoroute_nets` — named nets via the plugin CLI, then reload and
   refill zones
 - `check_drc` — `kicad-cli pcb drc` (clearance, silk, holes); saves
 - `review_board` — read only: GND/power pour, adjacent layers, via
   at each cap GND (3 mm), PTH wire pads vs those pours (thermals vs
-  clearance). Not DRC, not 90° corners. Before “done”.
+  clearance), SK6812 daisy (DOUT→DIN), cap GND next to LED pin 1.
+  Not DRC, not 90° corners. Before “done”.
 
 ### Silk text
 
@@ -244,11 +246,11 @@ KiCad `BeginCommit` races.
 | `get_nets` | Read — nets and pads |
 | `get_pads` | Read — baked pad truth (position, net, rotation, layers) |
 | `check_placement` | Read — hard OK/fail: template pads vs baked pads |
-| `get_routing_scene` | Read — tracks/vias + ids |
+| `get_routing_scene` | Read — tracks/vias + ids; optional `net` |
 | `list_parts` | Read — templates including builtins |
-| `get_part_pins` | Read — EasyEDA `number` + `pin_name` |
+| `get_part_pins` | Read — EasyEDA `number` + `pin_name` (C-number ok) |
 | `check_board` | Read — pads with empty net |
-| `review_board` | Read — short physics report (pour, return path, cap via, PTH thermals) |
+| `review_board` | Read — physics report (pour, return, cap via, PTH, daisy, cap polarity) |
 | `download_lcsc_part` | Write — EasyEDA → library + pins |
 | `make_wire_pad` | Write — parametric PTH wire pad template |
 | `make_mounting_hole` | Write — parametric NPTH hole template |
