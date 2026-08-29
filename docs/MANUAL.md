@@ -214,7 +214,8 @@ rail from the companion pad.
 - `check_drc` — `kicad-cli pcb drc` (clearance, silk, holes); saves
 - `review_board` — read only: GND/power pour, adjacent layers, via
   at each cap GND (3 mm), PTH wire pads vs those pours (thermals vs
-  clearance), SK6812 daisy (DOUT→DIN), cap GND next to LED pin 1.
+  clearance), SK6812 daisy (DOUT→DIN), 0603 cap GND next to LED pin 1
+  (bulk at the connector is skipped).
   Not DRC, not 90° corners. Before “done”.
 
 ### Silk text

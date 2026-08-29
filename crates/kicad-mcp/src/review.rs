@@ -17,6 +17,10 @@ const CAP_VIA_WARN_MISSING: usize = 1;
 /// Max centre distance from a decoupling cap to its companion LED pin 1.
 /// Between a 12.7 mm LED pitch and the bulk-cap cluster at the connector.
 const CAP_COMPANION_MM: f64 = 8.0;
+/// Half the long pad side. 0603 is ~0.45 mm; 0805 still fits. Bulk polymer
+/// (C79111 ~1.2 mm) is above this so C211/C212 at the connector are skipped
+/// even when they sit inside `CAP_COMPANION_MM` of an outer LED.
+const CAP_DECOUPLE_PAD_RADIUS_MM: f64 = 0.75;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -795,6 +799,12 @@ fn cap_polarity_finding(input: &ReviewInput) -> Vec<Finding> {
         if !(kinds.contains(&NetKind::Ground) && kinds.contains(&NetKind::Rail)) {
             continue;
         }
+        if !pads
+            .iter()
+            .all(|p| p.kind == "smd" && p.radius_mm <= CAP_DECOUPLE_PAD_RADIUS_MM)
+        {
+            continue;
+        }
         let Some((near_led, d_led)) = leds
             .iter()
             .map(|led| {
@@ -1254,6 +1264,20 @@ mod tests {
         let mut pads = led("U30", 80.0, 0.0, "IN", "");
         pads.push(pad_at("C99", "1", "5V", 200.0, 200.0));
         pads.push(pad_at("C99", "2", "GND", 201.0, 200.0));
+        let r = review(&daisy_panel(pads));
+        assert!(r.findings.iter().all(|f| f.id != "cap_polarity"));
+    }
+
+    #[test]
+    fn bulk_cap_beside_led_is_skipped() {
+        let mut pads = led("U30", 80.0, 0.0, "IN", "");
+        // Same pad nets as the fail case, but polymer-sized pads (C211).
+        let mut a = pad_at("C211", "1", "5V", 78.8, -1.0);
+        let mut b = pad_at("C211", "2", "GND", 83.0, 0.0);
+        a.radius_mm = 1.2;
+        b.radius_mm = 1.2;
+        pads.push(a);
+        pads.push(b);
         let r = review(&daisy_panel(pads));
         assert!(r.findings.iter().all(|f| f.id != "cap_polarity"));
     }

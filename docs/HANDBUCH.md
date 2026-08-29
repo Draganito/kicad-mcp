@@ -219,7 +219,8 @@ Polarität — GND vs. Rail vom Nachbarpad.
 - `check_drc` — `kicad-cli pcb drc` (Clearance, Silk, Löcher); speichert
 - `review_board` — liest nur: GND/Power-Pour, benachbarte Lagen, Via
   am Elko-GND (3 mm), PTH-Drahtpads gegen die Flächen (Thermals vs.
-  Abstand), SK6812-Daisy (DOUT→DIN), Elko-GND neben LED-Pin 1.
+  Abstand), SK6812-Daisy (DOUT→DIN), 0603-Elko-GND neben LED-Pin 1
+  (Bulk am Stecker zählt nicht).
   Kein DRC, keine 90°-Ecken. Vor „fertig“.
 
 ### Silk-Text
