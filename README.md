@@ -15,6 +15,8 @@ The board that started it:
 [contrib/aristo-d2-led-panel](contrib/aristo-d2-led-panel) — 109 SK6812,
 4 layers, ordered from JLCPCB.
 
+![MILUKA Aristo D2 replacement LED panel in KiCad](docs/aristo-d2-kicad.png)
+
 ![MILUKA Aristo D2 replacement LED panel in JLCPCB DFM](docs/aristo-d2-jlcpcb-dfm.png)
 
 ![MILUKA Aristo D2 replacement LED panel, JLCPCB 2D view](docs/aristo-d2-jlcpcb-2d.jpg)
