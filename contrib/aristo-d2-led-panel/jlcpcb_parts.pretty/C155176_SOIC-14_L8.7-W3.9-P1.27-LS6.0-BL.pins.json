@@ -1,0 +1,64 @@
+{
+  "lcsc_code": "C155176",
+  "name": "SN74AHCT125DR",
+  "template": "C155176_SOIC-14_L8.7-W3.9-P1.27-LS6.0-BL",
+  "source": "easyeda",
+  "pins": [
+    {
+      "number": "8",
+      "pin_name": "3Y"
+    },
+    {
+      "number": "9",
+      "pin_name": "3A"
+    },
+    {
+      "number": "10",
+      "pin_name": "3OE#"
+    },
+    {
+      "number": "11",
+      "pin_name": "4Y"
+    },
+    {
+      "number": "12",
+      "pin_name": "4A"
+    },
+    {
+      "number": "13",
+      "pin_name": "4OE#"
+    },
+    {
+      "number": "14",
+      "pin_name": "VCC"
+    },
+    {
+      "number": "7",
+      "pin_name": "GND"
+    },
+    {
+      "number": "6",
+      "pin_name": "2Y"
+    },
+    {
+      "number": "5",
+      "pin_name": "2A"
+    },
+    {
+      "number": "4",
+      "pin_name": "2OE#"
+    },
+    {
+      "number": "3",
+      "pin_name": "1Y"
+    },
+    {
+      "number": "2",
+      "pin_name": "1A"
+    },
+    {
+      "number": "1",
+      "pin_name": "1OE#"
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "lcsc_code": "C210838",
+  "name": "MF-MSMF250/16X-2",
+  "template": "C210838_F1812",
+  "source": "easyeda",
+  "pins": [
+    {
+      "number": "2",
+      "pin_name": "2"
+    },
+    {
+      "number": "1",
+      "pin_name": "1"
+    }
+  ]
+}

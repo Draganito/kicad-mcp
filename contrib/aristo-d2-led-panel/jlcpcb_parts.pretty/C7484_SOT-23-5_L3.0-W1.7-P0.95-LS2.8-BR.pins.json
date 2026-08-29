@@ -1,0 +1,28 @@
+{
+  "lcsc_code": "C7484",
+  "name": "SN74AHCT1G125DBVR",
+  "template": "C7484_SOT-23-5_L3.0-W1.7-P0.95-LS2.8-BR",
+  "source": "easyeda",
+  "pins": [
+    {
+      "number": "5",
+      "pin_name": "VCC"
+    },
+    {
+      "number": "4",
+      "pin_name": "Y"
+    },
+    {
+      "number": "3",
+      "pin_name": "GND"
+    },
+    {
+      "number": "2",
+      "pin_name": "A"
+    },
+    {
+      "number": "1",
+      "pin_name": "OE#"
+    }
+  ]
+}

@@ -1,14 +1,23 @@
 # kicad-mcp
 
-You keep **KiCad** open. In **Cursor** you tell an assistant what the
-board should be. It places parts, assigns nets, pours copper, and
+I built this because I needed a replacement LED panel for my
+**Besseler 4×5** enlarger (MILUKA Aristo D2). I had never designed a
+PCB, and I did not want to learn KiCad by clicking through menus.
+
+So you keep **KiCad** open. In **Cursor** you tell an assistant what
+the board should be. It places parts, assigns nets, pours copper, and
 writes the JLCPCB zip — on the board you already see.
 
 This is not a second PCB editor and not “chat, invent a `.kicad_pcb`”.
 KiCad stays the source of truth. Every change is **Ctrl+Z**.
 
-A 4-layer LED panel (109 SK6812) was laid out this way and ordered
-from JLCPCB.
+The board that started it:
+[contrib/aristo-d2-led-panel](contrib/aristo-d2-led-panel) — 109 SK6812,
+4 layers, ordered from JLCPCB.
+
+![MILUKA Aristo D2 replacement LED panel in JLCPCB DFM](docs/aristo-d2-jlcpcb-dfm.png)
+
+![MILUKA Aristo D2 replacement LED panel, JLCPCB 2D view](docs/aristo-d2-jlcpcb-2d.jpg)
 
 **Deutsch:** [Einstieg](ANLEITUNG_FUER_ANFAENGER.md) ·
 [Neuinstallation](docs/INSTALL_DEBIAN.md) ·

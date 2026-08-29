@@ -7,8 +7,9 @@ writes the JLCPCB zip — on the board you already see.
 Not a second editor. Not “chat, invent a `.kicad_pcb`”. Undo is always
 **Ctrl+Z** in KiCad. Save only when you ask.
 
-A 4-layer LED panel (109 SK6812) was built this way and ordered from
-JLCPCB.
+I built kicad-mcp to make a replacement LED panel for a Besseler 4×5
+enlarger. The board is in
+[contrib/aristo-d2-led-panel](../contrib/aristo-d2-led-panel).
 
 Deutsch: [ANLEITUNG_FUER_ANFAENGER.md](../ANLEITUNG_FUER_ANFAENGER.md).
 Full Debian install: [INSTALL_DEBIAN.en.md](INSTALL_DEBIAN.en.md).

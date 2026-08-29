@@ -1,5 +1,9 @@
 # kicad-mcp — Einstieg für Maker
 
+Ich habe kicad-mcp gebaut, weil ich für meinen **Besseler 4×5**
+(MILUKA Aristo D2) ein Ersatz-LED-Panel brauchte — ohne PCB-Erfahrung
+und ohne Lust, KiCad von Hand zu klicken.
+
 Du lässt **KiCad** offen. In **Cursor** sagst du, was auf die Platine
 soll. Die KI setzt Teile, vergibt Netze, gießt Kupfer und schreibt den
 JLCPCB-Zip — auf der Platine, die du schon siehst.
@@ -8,8 +12,9 @@ Kein zweiter Editor. Kein „Chat, erfinde eine `.kicad_pcb`“.
 Rückgängig ist immer **Ctrl+Z** in KiCad. Speichern nur, wenn du es
 willst.
 
-Eine 4-Lagen-LED-Platine (109 SK6812) ist so entstanden und bei
-JLCPCB bestellt worden.
+Das Panel liegt unter
+[contrib/aristo-d2-led-panel](contrib/aristo-d2-led-panel)
+(109 SK6812, 4 Lagen, bei JLCPCB bestellt).
 
 Englisch: [README](README.md) · [Getting started](docs/GETTING_STARTED.md)
 
