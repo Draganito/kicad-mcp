@@ -1,31 +1,30 @@
-# Neuinstallation auf Debian + Cursor
+# Fresh install on Debian + Cursor
 
-Schritt für Schritt von einer leeren Debian-Maschine (x86-64, z. B.
-Debian 13) bis zur ersten Frage in Cursor. Wenn du das Paket schon
-hast: [Einstieg für Maker](../ANLEITUNG_FUER_ANFAENGER.md).
-Nachschlagewerk: [HANDBUCH.md](HANDBUCH.md).
-English: [INSTALL_DEBIAN.en.md](INSTALL_DEBIAN.en.md).
+A clean Debian machine (x86-64, e.g. Debian 13) through to the first
+question in Cursor. If the package is already installed, the short
+version is in the [README](../README.md).
+Reference: [MANUAL.md](MANUAL.md).
 
-Die zwei `.deb` liegen auf derselben
-[Releases-Seite](https://github.com/Draganito/kicad-mcp/releases).
-Sie rufen sich **nicht** gegenseitig auf:
+Both `.deb` files sit on the same
+[Releases page](https://github.com/Draganito/kicad-mcp/releases).
+They do **not** call each other:
 
-| Paket | Macht |
+| Package | Role |
 | --- | --- |
-| `kicad-mcp_*.deb` | Cursor steuert KiCad (Teile, Netze, einzelne Bahnen) |
-| `kicad-routing-tools_*.deb` | Autorouter **in** Pcbnew (Werkzeuge → Externe Plugins) |
+| `kicad-mcp_*.deb` | Cursor drives KiCad (parts, nets, individual tracks) |
+| `kicad-routing-tools_*.deb` | Autorouter **inside** Pcbnew (Tools → External Plugins) |
 
-KiCad selbst kommt **nicht** im Deb — offizielles AppImage von kicad.org.
+KiCad itself is **not** in either deb — official AppImage from kicad.org.
 
 ---
 
 ## 1. KiCad 10 AppImage
 
-Debian 13 liefert nur KiCad **9**. Netze und MCP brauchen **10**.
+Debian 13 ships KiCad **9**. Nets and MCP need **10**.
 
-1. Download **Lite** (reicht) von
+1. Download **Lite** (enough) from
    [kicad.org/download/linux](https://www.kicad.org/download/linux/).
-   Manche Browser speichern `kicad-10.0.5-x86_64.AppImage.tar`:
+   Some browsers save `kicad-10.0.5-x86_64.AppImage.tar`:
 
    ```bash
    mkdir -p ~/Programme
@@ -33,118 +32,117 @@ Debian 13 liefert nur KiCad **9**. Netze und MCP brauchen **10**.
    chmod +x ~/Programme/kicad-10.0.5-x86_64.AppImage
    ```
 
-2. **Nicht** die `.AppImage` doppelklicken und **nicht** `/usr/bin/kicad`
-   (System-9). Das AppImage legt `TMPDIR` sonst unter `~/.cache/tmp` —
-   MCP sucht `ipc:///tmp/kicad/api.sock`.
+2. Do **not** double-click the `.AppImage` and do **not** run
+   `/usr/bin/kicad` (system 9). The AppImage remaps `TMPDIR` under
+   `~/.cache/tmp`; MCP looks for `ipc:///tmp/kicad/api.sock`.
 
 ---
 
-## 2. Beide Debs
+## 2. Both debs
 
-Von der Releases-Seite beide Dateien laden, dann:
+Download both files from the Releases page, then:
 
 ```bash
 sudo apt install ./kicad-mcp_<version>_amd64.deb ./kicad-routing-tools_0.20.4-2_amd64.deb
 ```
 
-`kicad-mcp` legt u. a. an:
+`kicad-mcp` installs:
 
-- `/usr/bin/kicad-mcp` — MCP-Server
-- `/usr/bin/kicad-10` — Wrapper (`TMPDIR=/tmp` + AppImage)
-- `/usr/share/kicad-mcp/cursor-setup/` — Cursor-Vorlage
-- `/usr/share/applications/kicad-10.desktop` — Menüeintrag
+- `/usr/bin/kicad-mcp` — MCP server
+- `/usr/bin/kicad-10` — wrapper (`TMPDIR=/tmp` + AppImage)
+- `/usr/share/kicad-mcp/cursor-setup/` — Cursor template
+- `/usr/share/applications/kicad-10.desktop` — menu entry
 
-`kicad-routing-tools` legt die Plugin-Dateien unter
-`/usr/share/kicad-routing-tools/` ab. Die muss jeder User **einmal**
-in sein KiCad-Verzeichnis kopieren:
+`kicad-routing-tools` stores the plugin under
+`/usr/share/kicad-routing-tools/`. Each user must copy it **once**:
 
 ```bash
 kicad-routing-tools-setup
 ```
 
-Nicht als root. Das entpackt auch numpy/scipy/shapely (CPython 3.11)
-nach `~/.local/share/kicad/10.0/3rdparty/python`. Im AppImage gibt es
-kein pip — `/usr/bin/python3 -m pip` aus KiCad heraus nicht starten
-(Fehler: `No module named encodings`).
+Not as root. That also unpacks numpy/scipy/shapely (CPython 3.11) into
+`~/.local/share/kicad/10.0/3rdparty/python`. The AppImage has no pip —
+do not run `/usr/bin/python3 -m pip` from inside KiCad
+(`No module named encodings`).
 
 ---
 
-## 3. KiCad starten und IPC
+## 3. Start KiCad and enable IPC
 
 ```bash
 kicad-10
 ```
 
-Oder den Menüeintrag **KiCad 10 (AppImage)**. Alternativ
-`KICAD_10_APPIMAGE=/pfad/zur.AppImage kicad-10`.
+Or the menu entry **KiCad 10 (AppImage)**. Alternative:
+`KICAD_10_APPIMAGE=/path/to.AppImage kicad-10`.
 
-1. **PCB-Editor** öffnen (eine leere Platine reicht).
-2. **Einstellungen → Plugins → IPC-API aktivieren**.
-3. KiCad **komplett beenden**, wieder `kicad-10`, PCB-Editor öffnen.
+1. Open the **PCB editor** (an empty board is enough).
+2. **Preferences → Plugins → Enable IPC API**.
+3. Quit KiCad completely, run `kicad-10` again, open the PCB editor.
 
-`board_summary` muss später `10.0.x` und `net_ipc_persists: true` zeigen.
-Steht dort 9.x: falsches KiCad — Wrapper nutzen, nicht das Systempaket.
+`board_summary` must later show `10.0.x` and `net_ipc_persists: true`.
+If it shows 9.x: wrong KiCad — use the wrapper, not the distro package.
 
 ---
 
 ## 4. Cursor
 
-[Cursor](https://cursor.com) installieren. Einen **Projektordner**
-anlegen (oder ein bestehendes KiCad-Projekt öffnen) und die Vorlage
-hinein kopieren:
+Install [Cursor](https://cursor.com). Create a **project folder**
+(or open an existing KiCad project) and copy the template in:
 
 ```bash
-cd /pfad/zum/projekt
+cd /path/to/project
 cp -a /usr/share/kicad-mcp/cursor-setup/.cursor /usr/share/kicad-mcp/cursor-setup/.cursorignore .
 ```
 
-In Cursor den Ordner öffnen, MCP-Server `kicad-mcp` einmal aus- und
-einschalten. `mcp.json` startet `/usr/bin/kicad-mcp --allow-ai-write`.
+Open that folder in Cursor and toggle the `kicad-mcp` MCP server off/on.
+`mcp.json` launches `/usr/bin/kicad-mcp --allow-ai-write`.
 
-Ohne `--allow-ai-write` lehnt jedes Write-Tool ab.
-
----
-
-## 5. Erster Check
-
-KiCad 10 läuft, PCB-Editor ist offen. In Cursor die KI bitten:
-*„board_summary aufrufen“*.
-
-Erwartet: Version 10.x, `has_open_board: true`, `net_ipc_persists: true`.
-
-Typischer Ablauf:
-
-1. MCP: Umriss, LCSC-Teile, platzieren, **Netze** (Ratsnest)
-2. Kupfer: selbst in KiCad, Plugin-Dialog, oder MCP `autoroute_nets`
-   mit **genannten** Netzen (nie GND, nie unbenutzte GPIOs)
-3. GND/5V als Fläche (`set_copper_zone`), 5V nur auf Wunsch autorouten
-4. `check_board` und nach Kupfer `check_drc`, bei Bedarf `export_manufacturing`
-5. `save_board` **nur wenn du es willst**
-
-Rückgängig: **Ctrl+Z** in KiCad. `.kicad_pcb` nicht von Hand editieren.
+Without `--allow-ai-write` every write tool refuses.
 
 ---
 
-## 6. Was die Pakete nicht tun
+## 5. First check
 
-- kicad-mcp **drückt nicht** den Route-Knopf. `autoroute_nets` startet
-  die Plugin-**CLI** und lädt die Datei neu (kein Ctrl+Z).
-- Das Plugin **legt keine** Teile und setzt keine Netze.
-- System-`apt install kicad` bleibt 9 — ignorieren.
-- Die `.deb`s enthalten kein AppImage (zu groß, fremde Lizenz).
+KiCad 10 is running and the PCB editor is open. In Cursor ask:
+*“call board_summary”*.
+
+Expect: version 10.x, `has_open_board: true`, `net_ipc_persists: true`.
+
+Typical flow:
+
+1. MCP: outline, LCSC parts, place, **nets** (ratsnest)
+2. `check_pins` — every pin netted or explicitly allowed open
+3. Copper: by hand in KiCad, the plugin dialog, or MCP `autoroute_nets`
+   with **named** nets (never GND, never unused GPIOs)
+4. GND/5V as pours (`set_copper_zone`); autoroute 5V only if asked
+5. `check_board` and after copper `check_drc`, then `export_manufacturing` if needed
+6. `save_board` **only when you ask**
+
+Undo: **Ctrl+Z** in KiCad. Do not edit `.kicad_pcb` by hand.
 
 ---
 
-## Wenn etwas hakt
+## 6. What the packages do not do
 
-| Symptom | Ursache |
+- kicad-mcp does **not** press Route. `autoroute_nets` runs the plugin
+  **CLI** and reloads the file (no Ctrl+Z).
+- The plugin does **not** place parts or assign nets.
+- Distro `apt install kicad` stays 9 — ignore it.
+- The debs do not ship the AppImage (too large, third-party license).
+
+---
+
+## Troubleshooting
+
+| Symptom | Cause |
 | --- | --- |
-| MCP: connect / No such file | KiCad zu, PCB-Editor zu, oder IPC-API aus |
-| `api.sock` fehlt | `.AppImage` direkt gestartet — `kicad-10` nutzen |
-| `net_ipc_persists: false` / Version 9 | System-KiCad statt AppImage 10 |
-| Write refused | `--allow-ai-write` fehlt in `mcp.json` |
-| Plugin: `No module named encodings` | pip aus KiCad — stattdessen `kicad-routing-tools-setup` |
-| Plugin fehlt im Menü | Setup nicht als User ausgeführt, oder KiCad nicht neu gestartet |
-| Plugin-pip schlägt fehl | Absicht: AppImage hat kein pip. Setup reicht |
+| MCP: connect / No such file | KiCad closed, PCB editor closed, or IPC API off |
+| `api.sock` missing | Started the `.AppImage` directly — use `kicad-10` |
+| `net_ipc_persists: false` / version 9 | System KiCad instead of AppImage 10 |
+| Write refused | `--allow-ai-write` missing from `mcp.json` |
+| Plugin: `No module named encodings` | pip from KiCad — run `kicad-routing-tools-setup` instead |
+| Plugin missing from the menu | Setup not run as the user, or KiCad not restarted |
+| Plugin pip fails | Expected: AppImage has no pip. Setup is enough |
 
-Mehr: [HANDBUCH.md](HANDBUCH.md) Kapitel „Probleme lösen“.
+More: [MANUAL.md](MANUAL.md) “Troubleshooting”.

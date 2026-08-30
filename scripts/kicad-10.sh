@@ -7,7 +7,7 @@
 # the .AppImage directly.
 #
 # Download: https://www.kicad.org/download/linux/  (Lite is enough)
-# Docs: docs/HANDBUCH.md §3 / docs/MANUAL.md §3
+# Docs: docs/MANUAL.md §3
 set -euo pipefail
 export TMPDIR=/tmp
 

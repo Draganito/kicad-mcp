@@ -1,10 +1,7 @@
 # kicad-mcp — Manual
 
-A-to-Z reference. Start with
-[Getting started](GETTING_STARTED.md) if you are new.
-German: [HANDBUCH.md](HANDBUCH.md) ·
-[Einstieg](../ANLEITUNG_FUER_ANFAENGER.md).
-Debian install: [INSTALL_DEBIAN.en.md](INSTALL_DEBIAN.en.md).
+A-to-Z reference. New here? Start with the [README](../README.md).
+Fresh machine: [INSTALL_DEBIAN.md](INSTALL_DEBIAN.md).
 
 ---
 
@@ -57,7 +54,7 @@ sudo apt install ./kicad-mcp_<version>_amd64.deb ./kicad-routing-tools_0.20.4-2_
 kicad-routing-tools-setup
 ```
 
-Step by step: [INSTALL_DEBIAN.en.md](INSTALL_DEBIAN.en.md).
+Step by step: [INSTALL_DEBIAN.md](INSTALL_DEBIAN.md).
 Debian/Ubuntu x86-64, glibc 2.39+. **KiCad 10** must be running
 (`recommends: kicad` is only the distro package — on Debian 13 that is
 9.0.2 and is not enough for nets). After the MCP `.deb`, `kicad-10`

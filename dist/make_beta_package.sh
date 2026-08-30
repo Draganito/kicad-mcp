@@ -45,14 +45,11 @@ for f in \
     ./usr/share/kicad-mcp/cursor-setup/.cursor/rules/kicad-mcp.mdc \
     ./usr/share/kicad-mcp/cursor-setup/.cursorignore \
     ./usr/share/doc/kicad-mcp/README.md \
-    ./usr/share/doc/kicad-mcp/LIESMICH.txt \
+    ./usr/share/doc/kicad-mcp/README.txt \
     ./usr/share/doc/kicad-mcp/LICENSE.txt \
     ./usr/share/doc/kicad-mcp/NOTICE \
-    ./usr/share/doc/kicad-mcp/ANLEITUNG_FUER_ANFAENGER.md \
-    ./usr/share/doc/kicad-mcp/docs/HANDBUCH.md \
     ./usr/share/doc/kicad-mcp/docs/MANUAL.md \
     ./usr/share/doc/kicad-mcp/docs/INSTALL_DEBIAN.md \
-    ./usr/share/doc/kicad-mcp/docs/INSTALL_DEBIAN.en.md \
     ./usr/share/doc/kicad-mcp/docs/architecture.md
 do
     grep -q " $f\$" <<<"$DEB_LISTING" \

@@ -5,15 +5,18 @@ I built this because I needed a replacement LED panel for my
 PCB, and I did not want to learn KiCad by clicking through menus.
 
 So you keep **KiCad** open. In **Cursor** you tell an assistant what
-the board should be. It places parts, assigns nets, pours copper, and
-writes the JLCPCB zip — on the board you already see.
+the board should be — in plain language. It downloads the real JLCPCB
+parts, places them, assigns the nets, pours the copper, checks its own
+work, and writes the files JLCPCB actually accepts.
 
 This is not a second PCB editor and not “chat, invent a `.kicad_pcb`”.
-KiCad stays the source of truth. Every change is **Ctrl+Z**.
+KiCad stays the source of truth. Every change is **Ctrl+Z**. Nothing
+is saved unless you ask.
 
-The board that started it:
-[contrib/aristo-d2-led-panel](contrib/aristo-d2-led-panel) — 109 SK6812,
-4 layers, ordered from JLCPCB.
+**Proof it works:** the board that started it —
+[contrib/aristo-d2-led-panel](contrib/aristo-d2-led-panel), 109 SK6812
+LEDs, 4 layers, designed this way from the first outline to the
+ordered Gerbers, manufactured by JLCPCB.
 
 ![MILUKA Aristo D2 replacement LED panel in KiCad](docs/aristo-d2-kicad.png)
 
@@ -21,13 +24,8 @@ The board that started it:
 
 ![MILUKA Aristo D2 replacement LED panel, JLCPCB 2D view](docs/aristo-d2-jlcpcb-2d.jpg)
 
-**Deutsch:** [Einstieg](ANLEITUNG_FUER_ANFAENGER.md) ·
-[Neuinstallation](docs/INSTALL_DEBIAN.md) ·
-[Handbuch](docs/HANDBUCH.md)
-
-**English:** [Getting started](docs/GETTING_STARTED.md) ·
-[Install on Debian](docs/INSTALL_DEBIAN.en.md) ·
-[Manual](docs/MANUAL.md)
+**Docs:** [Install on Debian](docs/INSTALL_DEBIAN.md) ·
+[Manual (A–Z reference)](docs/MANUAL.md)
 
 ---
 
@@ -35,10 +33,12 @@ The board that started it:
 
 Students, hobbyists, makers on **Debian/Ubuntu** who want help with
 the boring bits: a LED grid, wire pads, a GND pour, Gerbers that
-JLCPCB accepts.
+JLCPCB accepts — without learning a pro tool first.
 
-You still decide the circuit. The assistant should not invent pin
-functions — those come from the LCSC / EasyEDA part.
+You still decide the circuit. The assistant must not invent pin
+functions — those come from the LCSC / EasyEDA part, and built-in
+checks (`check_pins`, `check_placement`, `review_board`) force it to
+account for every pin instead of hand-waving.
 
 Skip this if you layout in Altium, only have Windows, or do not want
 an assistant in the editor at all.
@@ -78,7 +78,11 @@ an assistant in the editor at all.
 
 5. In Cursor, toggle the `kicad-mcp` server off and on.
 
-Full walkthrough (AppImage, optional autorouter):
+The autorouter (`kicad-routing-tools_*.deb`, same Releases page) is
+**optional**. If you want it: install it too, then run
+`kicad-routing-tools-setup` once as your user.
+
+Full walkthrough from a clean machine (AppImage, both packages):
 [docs/INSTALL_DEBIAN.md](docs/INSTALL_DEBIAN.md).
 
 ---
@@ -111,16 +115,18 @@ unless you ask.
    a grid (`place_matrix`). Pin names come from EasyEDA, not from
    memory.
 3. **Nets** — ratsnest only (`connect_many`). Copper comes later.
-4. **Copper** — tracks, vias, 4-layer stack if you need it, GND/5V
+4. **Check the nets** — `check_pins`: every pin must be netted or
+   explicitly allowed open. No silent floating pins.
+5. **Copper** — tracks, vias, 4-layer stack if you need it, GND/5V
    pours. Or named-net autoroute (not GND).
-5. **Silk** — `5V` / `GND` / `DATA` next to wire pads. Not on copper.
-6. **Check** — empty pads (`check_board`), pin coverage / ERC
-   substitute (`check_pins`), clearance (`check_drc`),
-   return path (`review_board`).
-7. **Order** — `export_manufacturing` writes the JLCPCB zip + BOM +
+6. **Silk** — `5V` / `GND` / `DATA` next to wire pads. Not on copper.
+7. **Check the board** — clearance (`check_drc`), connectivity
+   (`check_board`), layout physics (`review_board`).
+8. **Order** — `export_manufacturing` writes the JLCPCB zip + BOM +
    pick-and-place. Silk has no U1/C3 (JLCPCB DFM).
 
-Coordinates are millimetres, **+x right, +y up**.
+Coordinates are millimetres, **+x right, +y up**. Do not edit
+`.kicad_pcb` by hand.
 
 The assistant has a small tool list on purpose. The A–Z names live in
 the [manual](docs/MANUAL.md).
@@ -135,6 +141,9 @@ the [manual](docs/MANUAL.md).
 | Version 9 / nets empty | System KiCad instead of `kicad-10` |
 | Writes refused | Cursor template not copied (needs `--allow-ai-write`) |
 | Parts piled in the sheet corner | A bug in pad coordinates — not you; say so |
+| AppImage runs, no socket | `.AppImage` started directly instead of `kicad-10` |
+
+More: [manual](docs/MANUAL.md) → “Troubleshooting”.
 
 ---
 
