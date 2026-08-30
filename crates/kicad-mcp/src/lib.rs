@@ -15,6 +15,7 @@
 pub mod autoroute;
 pub mod builtins;
 pub mod copper;
+pub mod coverage;
 pub mod fab;
 pub mod kicad;
 pub mod mcp;

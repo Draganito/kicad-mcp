@@ -196,6 +196,18 @@ zeigen. `disconnect_pin` / `disconnect_many` setzen die Zuweisung
 zurück auf unconnected (gleicher Splice, Code 0). Idempotent, wenn der
 Pin schon offen ist. Reißt kein Kupfer auf.
 
+Nach dem Vernetzen **`check_pins`** laufen lassen — der ERC-Ersatz für
+den schaltplanlosen Workflow. Es gruppiert jedes elektrische Pad zu
+`REF.PIN`-Pins (NPTH und unnummerierte Pads werden übersprungen),
+listet `open_pins` ohne Netz (annotiert mit dem EasyEDA-`pin_name` —
+ein schwebendes `1OE#` liest sich anders als ein schwebendes `NC`) und
+`single_pad_nets` — Netze, die genau einen Pin erreichen: vernetzt,
+aber ohne Verbindung. Absichtlich offene Pins kommen in
+`allow: ["U226.5"]`; ein Allow-Eintrag, der keinen offenen Pin trifft,
+lässt den Report fehlschlagen (Tippfehler-Schutz). `ok` nur, wenn jeder
+Pin vernetzt oder ausdrücklich erlaubt ist — niemals ein schwebendes
+Enable oder einen Eingang stillschweigend akzeptieren.
+
 Ein Hersteller-PDF ist nur erlaubt, wenn eine **Logikprüfung** die
 EasyEDA-Namen unmöglich macht (Beispiel: WROOM-Pad 1 heißt `IO20`,
 obwohl Pin 1 der GND-Eckpin des Moduls ist). Dann harte Fakten holen
@@ -257,6 +269,7 @@ Keine parallelen Copper-Writes: KiCad `BeginCommit` verträgt das nicht.
 | `list_parts` | Lesen — Templates inkl. Builtins |
 | `get_part_pins` | Lesen — EasyEDA `number` + `pin_name` (auch C-Nummer) |
 | `check_board` | Lesen — Pads ohne Netz |
+| `check_pins` | Lesen — Pin-Abdeckung: offene Pins (mit `pin_name`), `allow`-Liste, Ein-Pin-Netze |
 | `review_board` | Lesen — Physik-Report (Pour, Rückweg, Elko-Via, PTH, Daisy, Elko-Lage) |
 | `download_lcsc_part` | Schreiben — EasyEDA → Library + Pins |
 | `make_wire_pad` | Schreiben — parametrisches PTH-Drahtpad-Template |

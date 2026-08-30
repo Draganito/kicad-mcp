@@ -203,6 +203,71 @@ impl KicadMcp {
     }
 
     #[tool(
+        description = "Pin-coverage audit (reads only) — the ERC substitute for the schematic-less workflow. Groups every electrical pad into REF.PIN pins (NPTH and unnumbered pads skipped), reports open_pins (no net) annotated with the EasyEDA pin_name when the template has one, and single_pad_nets (a net reaching exactly one pin — netted but connecting nothing). allow: [\"U1.5\", …] declares intentionally open pins; stale allow entries fail the report. ok only when every pin is netted or explicitly allowed. Run after connect_many, before copper — every open pin must be justified (NC per pin_name or an allow entry), never silently accepted."
+    )]
+    async fn check_pins(
+        &self,
+        Parameters(args): Parameters<CheckPinsArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        with_kicad(self, move |k| async move {
+            let pads = crate::pads::board_pads(&k, None, None).await?;
+            // Best-effort EasyEDA pin names: footprint value = template name.
+            let mut names: std::collections::HashMap<String, std::collections::HashMap<String, String>> =
+                std::collections::HashMap::new();
+            if let (Ok(fps), Ok(dir)) = (k.footprints().await, k.project_dir().await) {
+                let pretty = crate::kicad::jlc_pretty_dir(&dir);
+                let sym = crate::kicad::jlc_sym_path(&dir);
+                let mut template_of: std::collections::HashMap<String, String> =
+                    std::collections::HashMap::new();
+                for fp in &fps {
+                    if let (Some(r), Some(v)) = (fp.reference.as_deref(), fp.value.as_deref()) {
+                        template_of.insert(r.to_string(), v.to_string());
+                    }
+                }
+                let mut by_template: std::collections::HashMap<String, std::collections::HashMap<String, String>> =
+                    std::collections::HashMap::new();
+                for template in template_of.values() {
+                    if by_template.contains_key(template) {
+                        continue;
+                    }
+                    let map = easyeda_kicad::load_part_pins(&pretty, &sym, template)
+                        .map(|p| {
+                            p.pins
+                                .into_iter()
+                                .filter_map(|pin| pin.pin_name.map(|n| (pin.number, n)))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    by_template.insert(template.clone(), map);
+                }
+                for (reference, template) in template_of {
+                    if let Some(map) = by_template.get(&template) {
+                        names.insert(reference, map.clone());
+                    }
+                }
+            }
+            let rows: Vec<crate::coverage::PinRow> = pads
+                .iter()
+                .map(|p| crate::coverage::PinRow {
+                    reference: p.reference.clone(),
+                    pin: p.pin.clone(),
+                    net: p.net.clone(),
+                    pin_name: names
+                        .get(&p.reference)
+                        .and_then(|m| m.get(&p.pin))
+                        .cloned(),
+                    x_mm: p.x_mm,
+                    y_mm: p.y_mm,
+                    kind: p.kind.clone(),
+                })
+                .collect();
+            let allow = args.allow.unwrap_or_default();
+            Ok(crate::coverage::coverage(&rows, &allow))
+        })
+        .await
+    }
+
+    #[tool(
         description = "Short layout-physics review of the open board (reads only). Return path / GND pour, power pour, whether 5V and GND sit on adjacent layers, a GND via within 3 mm of each decoupling-cap GND pad, every PTH against those pours, SK6812 daisy (DOUT→DIN, one start, end open), and whether each 0603 GND pad sits next to the companion LED pin 1. Not DRC and not connectivity — those are check_drc and check_board. Does not flag 90° corners or silk overlap. Call after copper, before claiming the board is done. Report: ok, verdict, summary, findings[], not_checked[]."
     )]
     async fn review_board(&self) -> Result<CallToolResult, McpError> {
@@ -1639,6 +1704,13 @@ pub struct GetPadsArgs {
 }
 
 #[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+pub struct CheckPinsArgs {
+    /// Pins that are intentionally open, as `REF.PIN` (e.g. `["U226.5"]`).
+    /// Each entry must match an open pin, otherwise the report fails.
+    pub allow: Option<Vec<String>>,
+}
+
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
 pub struct CheckPlacementArgs {
     /// Audit only this footprint, e.g. `"U6"`. Omit for the whole board.
     pub reference: Option<String>,
@@ -1919,6 +1991,7 @@ impl ServerHandler for KicadMcp {
              Typical write path: clear_board, set_board_outline, place_parts or place_matrix, connect_many \
              (assigns every pad that shares a pin number, e.g. thermal pad 41), \
              disconnect_pin to put a pad back on unconnected after a mis-wire, \
+             then check_pins (the ERC substitute: every pin netted or explicitly allowed open via allow: [\"REF.PIN\"], plus nets reaching only one pin) before copper, \
              autoroute_nets for named signal nets (not GND), set_copper_layers then set_copper_zone for 5V/GND. \
              move_footprint relocates/rotates a placed part (rigid transform, nets stay, copper does not move). \
              get_pads reports every pad with absolute position, rotation, net and layers (all copper \

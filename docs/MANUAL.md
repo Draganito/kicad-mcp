@@ -191,6 +191,17 @@ rejected. On **KiCad 10** the name persists after save; `get_nets` /
 that assignment back to unconnected (same splice, code 0). Idempotent
 if the pin is already open. Does not rip copper.
 
+After netting, run **`check_pins`** — the ERC substitute for the
+schematic-less workflow. It groups every electrical pad into `REF.PIN`
+pins (NPTH and unnumbered pads are skipped), lists `open_pins` without a
+net (annotated with the EasyEDA `pin_name`, so a floating `1OE#` reads
+differently from a floating `NC`) and `single_pad_nets` — nets that
+reach exactly one pin, netted but connecting nothing. Intentionally
+open pins go into `allow: ["U226.5"]`; an allow entry that matches no
+open pin fails the report (typo guard). `ok` only when every pin is
+netted or explicitly allowed — never silently accept a floating enable
+or input.
+
 A manufacturer PDF is allowed only after a **logic check** shows the
 EasyEDA names cannot be right (example: WROOM pad 1 named `IO20` while
 pin 1 is the module GND corner). Then fetch hard facts (`datasheet_url`
@@ -251,6 +262,7 @@ KiCad `BeginCommit` races.
 | `list_parts` | Read — templates including builtins |
 | `get_part_pins` | Read — EasyEDA `number` + `pin_name` (C-number ok) |
 | `check_board` | Read — pads with empty net |
+| `check_pins` | Read — pin coverage: open pins (with `pin_name`), `allow` list, single-pad nets |
 | `review_board` | Read — physics report (pour, return, cap via, PTH, daisy, cap polarity) |
 | `download_lcsc_part` | Write — EasyEDA → library + pins |
 | `make_wire_pad` | Write — parametric PTH wire pad template |

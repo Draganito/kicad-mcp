@@ -114,7 +114,8 @@ unless you ask.
 4. **Copper** — tracks, vias, 4-layer stack if you need it, GND/5V
    pours. Or named-net autoroute (not GND).
 5. **Silk** — `5V` / `GND` / `DATA` next to wire pads. Not on copper.
-6. **Check** — empty pads (`check_board`), clearance (`check_drc`),
+6. **Check** — empty pads (`check_board`), pin coverage / ERC
+   substitute (`check_pins`), clearance (`check_drc`),
    return path (`review_board`).
 7. **Order** — `export_manufacturing` writes the JLCPCB zip + BOM +
    pick-and-place. Silk has no U1/C3 (JLCPCB DFM).
