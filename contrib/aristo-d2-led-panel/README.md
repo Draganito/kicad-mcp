@@ -9,6 +9,8 @@ level shifter, 5V / GND / DATA wire pads (2.8 mm pad / 1.4 mm drill),
 four M3 holes. The gerbers here are the set sent to JLCPCB
 (31 Aug 2026), including the load table on B.Silkscreen.
 
+![MILUKA Aristo D2 replacement LED panel, JLCPCB SMT top](jlcpcb_smt_top.jpg)
+
 ## Open it
 
 KiCad **10**, PCB editor. Open `led_panel_4x5.kicad_pro`. Footprints
