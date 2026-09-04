@@ -1,7 +1,7 @@
 # kicad-mcp
 
 I built this because I needed a replacement LED panel for my
-**Besseler 4×5** enlarger (MILUKA Aristo D2). I had never designed a
+**Beseler 4×5** enlarger (MILUKA Aristo D2). I had never designed a
 PCB, and I did not want to learn KiCad by clicking through menus.
 
 So you keep **KiCad** open. In **Cursor** you tell an assistant what

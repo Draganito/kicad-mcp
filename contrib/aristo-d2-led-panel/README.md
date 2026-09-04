@@ -1,6 +1,6 @@
 # MILUKA Aristo D2 replacement LED panel
 
-A 4-layer, Ø 157 mm LED head for a **Besseler 4×5** enlarger — the
+A 4-layer, Ø 157 mm LED head for a **Beseler 4×5** enlarger — the
 board that started [kicad-mcp](../../README.md). I needed this panel,
 had never designed a PCB, and did not want to operate KiCad by hand.
 
