@@ -19750,6 +19750,54 @@
 			(justify left bottom)
 		)
 	)
+	(gr_text "FOCUS W  2.3A  12W"
+		(at 148.5 45.23 0)
+		(layer "B.SilkS")
+		(uuid "53843d6f-ca6c-4935-b750-a078b7c8a0d8")
+		(effects
+			(font
+				(size 1.4 1.4)
+				(thickness 0.21)
+			)
+			(justify mirror)
+		)
+	)
+	(gr_text "SPLIT G+B  2.3A  12W"
+		(at 148.5 46.98 0)
+		(layer "B.SilkS")
+		(uuid "91fa292a-f206-486f-9c81-8672123b7360")
+		(effects
+			(font
+				(size 1.4 1.4)
+				(thickness 0.21)
+			)
+			(justify mirror)
+		)
+	)
+	(gr_text "MAX RGBW  5.0A  25W"
+		(at 148.5 48.73 0)
+		(layer "B.SilkS")
+		(uuid "a079e5ec-d043-434b-a260-3a3d98023f23")
+		(effects
+			(font
+				(size 1.4 1.4)
+				(thickness 0.21)
+			)
+			(justify mirror)
+		)
+	)
+	(gr_text "5V + ESP32"
+		(at 148.5 50.48 0)
+		(layer "B.SilkS")
+		(uuid "87ccb4e9-6d58-4915-b657-ee8421e2d99b")
+		(effects
+			(font
+				(size 1.4 1.4)
+				(thickness 0.21)
+			)
+			(justify mirror)
+		)
+	)
 	(via
 		(at 204.076 118.411)
 		(size 0.8)

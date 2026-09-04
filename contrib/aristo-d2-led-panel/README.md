@@ -6,7 +6,8 @@ had never designed a PCB, and did not want to operate KiCad by hand.
 
 109 × SK6812 (C5348912), local 0603 caps, two 220 µF bulk caps, TVS,
 level shifter, 5V / GND / DATA wire pads (2.8 mm pad / 1.4 mm drill),
-four M3 holes. Ordered from JLCPCB.
+four M3 holes. The gerbers here are the set sent to JLCPCB
+(31 Aug 2026), including the load table on B.Silkscreen.
 
 ## Open it
 
