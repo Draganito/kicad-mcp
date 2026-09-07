@@ -162,9 +162,42 @@ That cable is sold as **Grove → STEMMA QT / Qwiic**. It carries I2C
 (SDA, SCL) plus power and GND. A Grove-to-Grove lead will not fit the
 Adafruit board; a QT-to-QT lead will not fit the SenseCAP.
 
-Put the sensor on the baseboard, run the SenseCAP dose calibration,
-then print. Exposure is counted in light, not seconds, so LED warm-up
-and supply drift do not shift the print.
+The controller does not store times — it stores a **target dose**
+(intensity × time) per color, once per paper/developer combination.
+Every print then gets a fresh measurement, and the time is computed
+as `time = stored dose / measured intensity`. LED warm-up, supply
+drift, a new enlarger height, a different aperture — all of it is
+absorbed by the measurement instead of shifting your print.
+
+**Calibrate once per paper/developer** — you need a **Stouffer
+T2115** transmission stepwedge (21 steps, ½ stop per step; the
+firmware assumes exactly this geometry):
+
+1. Put the stepwedge in the negative carrier, the sensor on the
+   baseboard.
+2. Hold **MEAS BLK** ~3 seconds → the hidden calibration screen.
+3. Blue side: tap **READ REF** (captures the current blue
+   intensity), expose a real test print for the shown **TEST TIME**,
+   develop it.
+4. Find the step where the tone first reaches your target — for blue
+   the first solid black — and dial that number in with **STEP +/-**.
+   Tap **SAVE**.
+5. Repeat for the green side; the target there is the first visible
+   grey (green sets the highlights).
+
+**Every print after that:**
+
+1. Negative in, **FOCUS**, frame, set the aperture.
+2. Sensor on the **clear film edge between frames** — not on the
+   image. That is the stable, repeatable reading.
+3. Tap **MEAS BLK**, then **MEAS LIT** — hard and soft times appear.
+4. **EXPOSURE**.
+5. Judge the print. Fine-tune with **HARD +/-** (shadows/contrast)
+   and **SOFT +/-** (highlights) — do not measure again unless you
+   changed height or aperture, because a new measurement overwrites
+   the hand-tuned times.
+
+**EXPOSURE** always works as an immediate stop, whatever is running.
 
 ![TSL2591 on STEMMA QT, SenseCAP dose calibration](sensecap_tsl2591_front.jpg)
 
