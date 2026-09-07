@@ -53,6 +53,23 @@ JLCPCB assembled board at qty 1.
 | 18 AWG DC pigtail 5.5/2.1, screws, solder, PLA+, 5 A fuse | 20.00 | — |
 | **Total** | **149.93** | |
 
+### Under $100 — the manual tier
+
+Skip the SenseCAP and the TSL2591 and you have a **manual splitgrade
+system for $93.98**: panel, XIAO, PSU and hardware, controlled by the
+free [Android app](https://github.com/Draganito/splitgrade-controller-android/releases)
+over BLE. You set hard and soft times yourself from test strips — no
+metering, no dose calibration, but the same head, the same light and
+the same one-button splitgrade exposure. The SenseCAP and sensor can
+be added later; nothing has to be rebuilt.
+
+> **App compatibility:** the app is developed and tested on Google
+> Pixel phones running GrapheneOS — officially verified on a
+> **Pixel 4a** and a **Pixel 9**. Other brands (Samsung, Xiaomi, …)
+> ship different BLE stacks and are untested; the app may need
+> adjustments there. Testing on more devices is on the roadmap — bug
+> reports with the phone model are welcome.
+
 ## Build it
 
 ### 1. Order the panel
