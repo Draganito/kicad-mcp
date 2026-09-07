@@ -287,13 +287,3 @@ https://github.com/user-attachments/assets/70728c96-0126-4f3b-ad37-9e4ec7c04c5c
 Factory SMT view from the JLCPCB order:
 
 ![MILUKA Aristo D2 replacement LED panel, JLCPCB SMT top](jlcpcb_smt_top.jpg)
-
-Inline fuse on VIN+ (required):
-
-![Inline 5 A blade fuse on the VIN+ lead](inline_fuse.jpg)
-
-TSL2591 on a Grove → STEMMA QT / Qwiic cable:
-
-![TSL2591 on STEMMA QT, SenseCAP dose calibration](sensecap_tsl2591_front.jpg)
-
-![Grove plug on the back of the SenseCAP D1](sensecap_grove_back.jpg)
