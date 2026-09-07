@@ -265,7 +265,7 @@ https://github.com/user-attachments/assets/cf3984b5-ae27-4c1a-a5dd-19e20b47ff94
 The Android app driving the head over BLE — focus, split-grade
 exposure, settings:
 
-https://github.com/user-attachments/assets/fcef31bb-bfbe-417e-9b69-43c95a26ad00
+https://github.com/user-attachments/assets/70728c96-0126-4f3b-ad37-9e4ec7c04c5c
 
 Factory SMT view from the JLCPCB order:
 
