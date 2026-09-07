@@ -199,6 +199,21 @@ firmware assumes exactly this geometry):
 
 **EXPOSURE** always works as an immediate stop, whatever is running.
 
+For advanced users there is an optional **cross factor** (a hidden
+screen, off by default): VC paper's soft emulsion keeps its full blue
+sensitivity, so a long hard/blue exposure also pushes the highlights.
+A positive cross factor subtracts a fraction of the hard time from
+the soft time to compensate — an original development of this
+project, tuned per paper with real test prints. Details in the
+[controller docs](https://github.com/Draganito/splitgrade-controller-sensecap).
+
+> **Status: test and development phase.** The sensor system, the
+> dose-based calibration logic and the cross factor work on the
+> bench, but many darkroom tests are still ahead. Do not treat the
+> metering side as a finished product yet — expect to make test
+> prints and to update firmware as it matures. The LED panel itself
+> and the timer/exposure side are built and tested.
+
 ![TSL2591 on STEMMA QT, SenseCAP dose calibration](sensecap_tsl2591_front.jpg)
 
 ![Grove plug on the back of the SenseCAP D1](sensecap_grove_back.jpg)
