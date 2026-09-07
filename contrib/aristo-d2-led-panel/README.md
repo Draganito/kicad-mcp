@@ -27,6 +27,14 @@ PSU. That is the point of this build.
 
 ![All 109 LEDs on (blue)](panel_lit_blue.jpg)
 
+On the Beseler, with the XIAO on the back of the holder:
+
+![Head on the enlarger](head_on_enlarger.jpg)
+
+<video src="head_on_enlarger.mp4" controls muted playsinline></video>
+
+[Video: head on the enlarger (no audio)](head_on_enlarger.mp4)
+
 Factory SMT view from the JLCPCB order:
 
 ![MILUKA Aristo D2 replacement LED panel, JLCPCB SMT top](jlcpcb_smt_top.jpg)
