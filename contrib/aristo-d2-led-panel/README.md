@@ -13,6 +13,10 @@ The first board is back from JLCPCB, soldered, in the printed
 [holder](../panel-holder-freecad/panel-holder.FCStd), and tested —
 all 109 LEDs run.
 
+**The complete splitgrade system is under $150** — panel, holder,
+SenseCAP controller, TSL2591 meter, XIAO receiver, and a 5 V / 5 A
+PSU. That is the point of this build.
+
 ![JLCPCB parcel](jlcpcb_box.jpg)
 
 ![Assembled panel, DATA input and level shifter](panel_smt_data.jpg)
@@ -26,6 +30,24 @@ all 109 LEDs run.
 Factory SMT view from the JLCPCB order:
 
 ![MILUKA Aristo D2 replacement LED panel, JLCPCB SMT top](jlcpcb_smt_top.jpg)
+
+## Under $150 — complete splitgrade system
+
+List prices, one of each, no shipping or VAT. Panel is the JLCPCB
+assembled board at **$60 / piece**.
+
+| Part | USD | Link |
+| --- | ---: | --- |
+| LED panel, 109× SK6812, JLCPCB SMT | 60.00 | [Gerbers in this folder](led_panel_4x5_gerbers.zip) |
+| [SenseCAP Indicator D1](https://www.seeedstudio.com/SenseCAP-Indicator-D1-p-5643.html) (controller) | 49.00 | [seeedstudio.com](https://www.seeedstudio.com/SenseCAP-Indicator-D1-p-5643.html) |
+| [Seeed XIAO ESP32-S3](https://www.seeedstudio.com/XIAO-ESP32S3-p-5627.html) (head) | 7.49 | [seeedstudio.com](https://www.seeedstudio.com/XIAO-ESP32S3-p-5627.html) |
+| [Adafruit TSL2591](https://www.adafruit.com/product/1980) (meter) | 6.95 | [adafruit.com/product/1980](https://www.adafruit.com/product/1980) |
+| [Waveshare 5 V / 5 A](https://www.waveshare.com/psu-5v5a-5.5-2.1.htm), 5.5×2.1 mm | 6.49 | [waveshare.com](https://www.waveshare.com/psu-5v5a-5.5-2.1.htm) |
+| Cable, screws, solder, PLA+ holder | 20.00 | [holder CAD](../panel-holder-freecad/panel-holder.FCStd) |
+| **Total** | **149.93** | |
+
+Head firmware (free): [darkroom-enlarger-head](https://github.com/Draganito/darkroom-enlarger-head).
+SenseCAP wiki: [hands-on demo](https://wiki.seeedstudio.com/SenseCAP_Indicator_Application_LoRaWAN/#hands-on-demo).
 
 ## Open it
 
