@@ -50,7 +50,7 @@ JLCPCB assembled board at qty 1.
 | Seeed XIAO ESP32-S3 (head receiver) | 7.49 | [seeedstudio.com](https://www.seeedstudio.com/XIAO-ESP32S3-p-5627.html) |
 | Adafruit TSL2591 (meter) | 6.95 | [adafruit.com/product/1980](https://www.adafruit.com/product/1980) |
 | Waveshare 5 V / 5 A PSU, 5.5×2.1 mm | 6.49 | [waveshare.com](https://www.waveshare.com/psu-5v5a-5.5-2.1.htm) |
-| Cable, screws, solder, PLA+ for the holder | 20.00 | — |
+| Cable, screws, solder, PLA+, inline 5 A fuse | 20.00 | — |
 | **Total** | **149.93** | |
 
 ## Build it
@@ -86,10 +86,17 @@ cannot see the LED grid, even on large prints.
 Three wires go to the panel's labeled pads (2.8 mm pads, 1.4 mm
 holes — fits 1 mm² stranded wire):
 
-- **VIN / GND** (top of the board): straight from the 5 V barrel
-  jack. This is the LED current path — keep it thick and short.
+- **VIN / GND** (top of the board): from the 5 V barrel jack. This is
+  the LED current path — keep it thick and short.
 - **DATA** (bottom): from the XIAO's data pin (GPIO 5 / pin D4),
   through the on-board level shifter to the first LED.
+
+Put an **inline blade fuse on the +5 V lead, before VIN**. Do not
+feed the pad unfused. A 5 A ATC/ATO fuse matches the PSU and the
+panel's worst-case load. Cut the holder's red loop, splice it in
+series on the positive wire only, then close the cap.
+
+![Inline 5 A blade fuse on the VIN+ lead](inline_fuse.jpg)
 
 The XIAO sits on the **back** of the holder and taps 5 V and GND with
 thin wires. Never route the LED current through the XIAO — the panel
@@ -193,3 +200,7 @@ https://github.com/user-attachments/assets/cf3984b5-ae27-4c1a-a5dd-19e20b47ff94
 Factory SMT view from the JLCPCB order:
 
 ![MILUKA Aristo D2 replacement LED panel, JLCPCB SMT top](jlcpcb_smt_top.jpg)
+
+Inline fuse on VIN+ (required):
+
+![Inline 5 A blade fuse on the VIN+ lead](inline_fuse.jpg)
