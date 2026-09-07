@@ -262,6 +262,11 @@ On the Beseler, with the XIAO on the back of the holder:
 
 https://github.com/user-attachments/assets/cf3984b5-ae27-4c1a-a5dd-19e20b47ff94
 
+The Android app driving the head over BLE — focus, split-grade
+exposure, settings:
+
+https://github.com/user-attachments/assets/fcef31bb-bfbe-417e-9b69-43c95a26ad00
+
 Factory SMT view from the JLCPCB order:
 
 ![MILUKA Aristo D2 replacement LED panel, JLCPCB SMT top](jlcpcb_smt_top.jpg)
