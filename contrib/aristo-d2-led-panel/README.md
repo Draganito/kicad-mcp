@@ -9,6 +9,22 @@ level shifter, 5V / GND / DATA wire pads (2.8 mm pad / 1.4 mm drill),
 four M3 holes. The gerbers here are the set sent to JLCPCB
 (31 Aug 2026), including the load table on B.Silkscreen.
 
+The first board is back from JLCPCB, soldered, in the printed
+[holder](../panel-holder-freecad/panel-holder.FCStd), and tested —
+all 109 LEDs run.
+
+![JLCPCB parcel](jlcpcb_box.jpg)
+
+![Assembled panel, DATA input and level shifter](panel_smt_data.jpg)
+
+![Panel in the printed holder](panel_in_holder.jpg)
+
+![Back of the holder](holder_back.jpg)
+
+![All 109 LEDs on (blue)](panel_lit_blue.jpg)
+
+Factory SMT view from the JLCPCB order:
+
 ![MILUKA Aristo D2 replacement LED panel, JLCPCB SMT top](jlcpcb_smt_top.jpg)
 
 ## Open it
