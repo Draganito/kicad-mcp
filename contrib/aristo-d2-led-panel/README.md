@@ -31,9 +31,7 @@ On the Beseler, with the XIAO on the back of the holder:
 
 ![Head on the enlarger](head_on_enlarger.jpg)
 
-<video src="head_on_enlarger.mp4" controls muted playsinline></video>
-
-[Video: head on the enlarger (no audio)](head_on_enlarger.mp4)
+https://github.com/user-attachments/assets/cf3984b5-ae27-4c1a-a5dd-19e20b47ff94
 
 Factory SMT view from the JLCPCB order:
 
