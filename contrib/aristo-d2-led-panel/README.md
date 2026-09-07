@@ -112,12 +112,32 @@ on GPIO 5**. It listens on ESP-NOW and BLE at the same time.
 
 ### 5. Pick a controller
 
-- **[SenseCAP Indicator D1](https://github.com/Draganito/splitgrade-controller-sensecap)**
-  — the primary tier. 4″ touch screen, talks ESP-NOW (instant, no
-  pairing), runs the metering/calibration workflow with the TSL2591.
-- **[Android app](https://github.com/Draganito/splitgrade-controller-android/releases)**
-  — the budget tier. Free APK, connects over BLE, sets exposure times
-  and the LED configuration.
+**[SenseCAP Indicator D1](https://github.com/Draganito/splitgrade-controller-sensecap)**
+is the primary tier: 4″ touch screen, ESP-NOW (instant, no pairing),
+metering and calibration with the TSL2591. Seeed wiki:
+[hands-on demo](https://wiki.seeedstudio.com/SenseCAP_Indicator_Application_LoRaWAN/#hands-on-demo).
+
+**[Android app](https://github.com/Draganito/splitgrade-controller-android/releases)**
+is the budget tier: a free APK over BLE, same head, no sensor. Sideload
+steps: [INSTALL.md](https://github.com/Draganito/splitgrade-controller-android/blob/main/INSTALL.md).
+
+How to connect (the home screen does **not** scan by itself):
+
+1. Power the head from the 5 V supply. The XIAO advertises as
+   `DarkroomTimer`.
+2. On the phone: Bluetooth on, allow **Nearby devices** when the app
+   asks.
+3. **Do not pair** `DarkroomTimer` in Android Bluetooth settings. A
+   system pair breaks the app after a firmware flash.
+4. Open **miluka Splitgrade Controller**.
+5. Hold **Focus** for 3 seconds → **Einstellungen**.
+6. Tap **Geräte suchen**, then tap **DarkroomTimer**.
+7. LED count and DATA pin default to **109 / GPIO 5** (this panel).
+   Change them only for a different board, then **Save**.
+
+A crossed-out Bluetooth icon on the timer screen means “not connected
+yet” — that is normal until you finish step 6. Next launch the app
+tries the last device by itself.
 
 ### 6. Calibrate and print
 
