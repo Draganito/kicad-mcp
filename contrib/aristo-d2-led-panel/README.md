@@ -50,7 +50,7 @@ JLCPCB assembled board at qty 1.
 | Seeed XIAO ESP32-S3 (head receiver) | 7.49 | [seeedstudio.com](https://www.seeedstudio.com/XIAO-ESP32S3-p-5627.html) |
 | Adafruit TSL2591 (meter) | 6.95 | [adafruit.com/product/1980](https://www.adafruit.com/product/1980) |
 | Waveshare 5 V / 5 A PSU, 5.5×2.1 mm | 6.49 | [waveshare.com](https://www.waveshare.com/psu-5v5a-5.5-2.1.htm) |
-| Cable, screws, solder, PLA+, inline 5 A fuse | 20.00 | — |
+| 18 AWG DC pigtail 5.5/2.1, screws, solder, PLA+, 5 A fuse | 20.00 | — |
 | **Total** | **149.93** | |
 
 ## Build it
@@ -86,10 +86,13 @@ cannot see the LED grid, even on large prints.
 Three wires go to the panel's labeled pads (2.8 mm pads, 1.4 mm
 holes — fits 1 mm² stranded wire):
 
-- **VIN / GND** (top of the board): from the 5 V barrel jack. This is
-  the LED current path — keep it thick and short.
+- **VIN / GND** (top of the board): from a **5.5 / 2.1 mm DC socket**
+  (same barrel as the Waveshare 5 V / 5 A PSU). This build uses a
+  short pigtail in **18 AWG** — that gauge matters; thinner wire
+  drops voltage and heats up at 2–5 A. Keep the run short.
 - **DATA** (bottom): from the XIAO's data pin (GPIO 5 / pin D4),
-  through the on-board level shifter to the first LED.
+  through the on-board level shifter to the first LED. The data
+  wire can be thinner than the power pair.
 
 Put an **inline blade fuse on the +5 V lead, before VIN**. Do not
 feed the pad unfused. A 5 A ATC/ATO fuse matches the PSU and the
