@@ -130,8 +130,8 @@ How to connect (the home screen does **not** scan by itself):
 3. **Do not pair** `DarkroomTimer` in Android Bluetooth settings. A
    system pair breaks the app after a firmware flash.
 4. Open **miluka Splitgrade Controller**.
-5. Hold **Focus** for 3 seconds → **Einstellungen**.
-6. Tap **Geräte suchen**, then tap **DarkroomTimer**.
+5. Hold **Focus** for 3 seconds → **Settings**.
+6. Tap **Scan for devices**, then tap **DarkroomTimer**.
 7. LED count and DATA pin default to **109 / GPIO 5** (this panel).
    Change them only for a different board, then **Save**.
 
