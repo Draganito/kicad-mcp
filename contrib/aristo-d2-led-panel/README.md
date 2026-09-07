@@ -151,10 +151,24 @@ tries the last device by itself.
 
 ### 6. Calibrate and print
 
-Put the TSL2591 on the baseboard, let the controller measure the
-actual light dose, and print. Because exposure is counted in light
-rather than seconds, LED warm-up and supply drift do not shift your
-print.
+Plug the Adafruit TSL2591 into the SenseCAP D1 with one off-the-shelf
+4-wire cable — no soldering:
+
+- SenseCAP end: **Grove**, JST-PH **2.0 mm**, 4-pin (the lower Grove
+  socket on the back of the D1)
+- Sensor end: **STEMMA QT / Qwiic**, JST-SH **1.0 mm**, 4-pin
+
+That cable is sold as **Grove → STEMMA QT / Qwiic**. It carries I2C
+(SDA, SCL) plus power and GND. A Grove-to-Grove lead will not fit the
+Adafruit board; a QT-to-QT lead will not fit the SenseCAP.
+
+Put the sensor on the baseboard, run the SenseCAP dose calibration,
+then print. Exposure is counted in light, not seconds, so LED warm-up
+and supply drift do not shift the print.
+
+![TSL2591 on STEMMA QT, SenseCAP dose calibration](sensecap_tsl2591_front.jpg)
+
+![Grove plug on the back of the SenseCAP D1](sensecap_grove_back.jpg)
 
 ## The panel, technically
 
@@ -207,3 +221,9 @@ Factory SMT view from the JLCPCB order:
 Inline fuse on VIN+ (required):
 
 ![Inline 5 A blade fuse on the VIN+ lead](inline_fuse.jpg)
+
+TSL2591 on a Grove → STEMMA QT / Qwiic cable:
+
+![TSL2591 on STEMMA QT, SenseCAP dose calibration](sensecap_tsl2591_front.jpg)
+
+![Grove plug on the back of the SenseCAP D1](sensecap_grove_back.jpg)
