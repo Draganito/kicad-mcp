@@ -71,6 +71,19 @@ impl KicadMcp {
     }
 
     #[tool(
+        description = "Board overlay outlines (unfilled graphics) on F/B.Silkscreen and Cmts/Dwgs/Eco.User. Never Edge.Cuts. Optional layer filter. polygon_points is the outline vertex count (closing duplicate omitted), not the number of polygons in the set. Use this to verify a cover/mask overlay against the LEDs instead of guessing from a render."
+    )]
+    async fn get_shapes(
+        &self,
+        Parameters(args): Parameters<GetShapesArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        with_kicad(self, move |k| async move {
+            k.board_shapes(args.layer.as_deref()).await
+        })
+        .await
+    }
+
+    #[tool(
         description = "Every pad as hard data straight from KiCad's baked protos: reference, pin, net, absolute x_mm/y_mm, size, rotation, smd/pth/npth, shape, layer, layers (every copper layer the pad exists on — PTH wire pads must list In1/In2 or a 5V pour cannot attach), drill. Optional reference and/or net filter. Use this to verify placement and orientation against reality (a mirrored or mis-rotated part shows pads on the wrong side of the anchor) — never guess from templates or renders."
     )]
     async fn get_pads(
@@ -574,7 +587,7 @@ impl KicadMcp {
     }
 
     #[tool(
-        description = "Delete every footprint, track, via, zone and board silk text on the open board (Edge.Cuts stays unless you set_board_outline with replace). One undo. Use this to start a board from scratch."
+        description = "Delete every footprint, track, via, zone, board silk text and overlay outline (silk/user graphics) on the open board (Edge.Cuts stays unless you set_board_outline with replace). One undo. Use this to start a board from scratch."
     )]
     async fn clear_board(&self) -> Result<CallToolResult, McpError> {
         if let Some(refusal) = self.require_write() {
@@ -599,6 +612,7 @@ impl KicadMcp {
             }
             ids.extend(k.zone_ids().await?);
             ids.extend(k.board_text_ids().await?);
+            ids.extend(k.managed_graphic_ids(None).await?);
             if ids.is_empty() {
                 return Ok(serde_json::json!({ "ok": true, "deleted": 0 }));
             }
@@ -717,6 +731,88 @@ impl KicadMcp {
                         "count": n_req,
                         "items_created": n,
                         "placed": placed,
+                    }))
+                }
+                Err(e) => {
+                    let _ = k.drop_commit(session).await;
+                    Err(e)
+                }
+            }
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Draw one unfilled outline (rect / circle / polygon) so you can overlay a mechanical cover or mask on the LEDs. Default F.Silkscreen (visible on the parts; plots to gerbers — clear_shapes before export unless it belongs on the PCB). Prefer Cmts.User for a check-only overlay that is never manufactured. Never Edge.Cuts, never copper, never filled. Rect: origin_x_mm/origin_y_mm (bottom-left) or center_x_mm/center_y_mm plus width_mm/height_mm. Circle: x_mm/y_mm plus radius_mm or diameter_mm. Polygon: points [{x_mm,y_mm}, …] (closed). stroke_mm default 0.15 (silk floor 0.15). replace=true deletes existing overlay graphics on that layer first. Ctrl+Z undoes."
+    )]
+    async fn add_shape(
+        &self,
+        Parameters(args): Parameters<AddShapeArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        if let Some(refusal) = self.require_write() {
+            return refusal;
+        }
+        with_kicad(self, move |k| async move {
+            let replace = args.replace.unwrap_or(false);
+            commit_shapes(&k, std::slice::from_ref(&args), replace).await
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Draw many unfilled cover/mask outlines in one undo (max 150). Each item is the same as add_shape: {kind, rect/circle/polygon fields, layer?, stroke_mm?}. replace=true deletes existing overlay graphics on every layer used in this batch (never Edge.Cuts)."
+    )]
+    async fn add_shapes(
+        &self,
+        Parameters(args): Parameters<AddShapesArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        if let Some(refusal) = self.require_write() {
+            return refusal;
+        }
+        with_kicad(self, move |k| async move {
+            if args.shapes.is_empty() {
+                return Err("add_shapes needs at least one outline".into());
+            }
+            if args.shapes.len() > crate::graphics::SHAPE_MAX {
+                return Err(format!(
+                    "add_shapes max {} (got {})",
+                    crate::graphics::SHAPE_MAX,
+                    args.shapes.len()
+                ));
+            }
+            commit_shapes(&k, &args.shapes, args.replace.unwrap_or(false)).await
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Delete overlay outlines on F/B.Silkscreen and Cmts/Dwgs/Eco.User. Never Edge.Cuts (that would destroy the board). Optional layer filter. One undo. Use this after a cover check, or before export_manufacturing if the overlay was drawn on silk."
+    )]
+    async fn clear_shapes(
+        &self,
+        Parameters(args): Parameters<ClearShapesArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        if let Some(refusal) = self.require_write() {
+            return refusal;
+        }
+        with_kicad(self, move |k| async move {
+            if args.layer.is_some() {
+                crate::graphics::parse_graphic_layer(args.layer.as_deref())?;
+            }
+            let ids = k.managed_graphic_ids(args.layer.as_deref()).await?;
+            if ids.is_empty() {
+                return Ok(serde_json::json!({ "ok": true, "deleted": 0 }));
+            }
+            let session = k.begin_commit().await?;
+            match k.delete_ids(ids).await {
+                Ok(deleted) => {
+                    k.end_commit(session, "kicad-mcp clear overlay outlines")
+                        .await?;
+                    let _ = k.refresh().await;
+                    Ok(serde_json::json!({
+                        "ok": true,
+                        "deleted": deleted.len(),
+                        "layer": args.layer,
                     }))
                 }
                 Err(e) => {
@@ -1376,7 +1472,7 @@ impl KicadMcp {
     }
 
     #[tool(
-        description = "JLCPCB manufacturing bundle: refill zones, save, then write <stem>_gerbers.zip (Gerber + Excellon drill via kicad-cli; silkscreen has no refdes/value text — avoids JLCPCB silk-to-pad DFM), <stem>_cpl.csv (pick & place), <stem>_bom.csv (LCSC). Upload the zip as Gerbers and the two CSVs as BOM/CPL on jlcpcb.com. Optional out_dir (default: project folder). Needs kicad-cli on PATH."
+        description = "JLCPCB manufacturing bundle: refill zones, save, then write <stem>_gerbers.zip (Gerber + Excellon drill via kicad-cli; silkscreen has no refdes/value text — avoids JLCPCB silk-to-pad DFM), <stem>_cpl.csv (pick & place), <stem>_bom.csv (LCSC). Warns if silk overlay outlines are still on the board (they plot). Upload the zip as Gerbers and the two CSVs as BOM/CPL on jlcpcb.com. Optional out_dir (default: project folder). Needs kicad-cli on PATH."
     )]
     async fn export_manufacturing(
         &self,
@@ -1386,6 +1482,13 @@ impl KicadMcp {
             return refusal;
         }
         with_kicad(self, move |k| async move {
+            let plotting = k
+                .board_shapes(None)
+                .await
+                .unwrap_or_default()
+                .iter()
+                .filter(|s| s.plots)
+                .count();
             let _ = k.refill_all_zones().await;
             k.save().await?;
             let board = k.board_file_path().await?;
@@ -1400,7 +1503,7 @@ impl KicadMcp {
             })
             .await
             .map_err(|e| e.to_string())??;
-            Ok(serde_json::json!({
+            let mut out = serde_json::json!({
                 "ok": true,
                 "gerber_zip": files.gerber_zip,
                 "cpl_csv": files.cpl_csv,
@@ -1409,7 +1512,12 @@ impl KicadMcp {
                 "cpl_rows": files.cpl_rows,
                 "gerber_files": files.gerber_files,
                 "note": "JLCPCB: upload gerber_zip as PCB Gerbers, bom_csv as BOM, cpl_csv as CPL / centroid.",
-            }))
+            });
+            if let Some(warning) = crate::graphics::silk_export_warning(plotting) {
+                out["warning"] = serde_json::json!(warning);
+                out["silk_overlay_count"] = serde_json::json!(plotting);
+            }
+            Ok(out)
         })
         .await
     }
@@ -1704,6 +1812,12 @@ pub struct GetPadsArgs {
 }
 
 #[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+pub struct GetShapesArgs {
+    /// F.Silkscreen, B.Silkscreen, Cmts.User, Dwgs.User, Eco1.User or Eco2.User. Omit for all overlay layers.
+    pub layer: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
 pub struct CheckPinsArgs {
     /// Pins that are intentionally open, as `REF.PIN` (e.g. `["U226.5"]`).
     /// Each entry must match an open pin, otherwise the report fails.
@@ -1754,7 +1868,7 @@ pub struct RipupArgs {
     pub segment_ids: Option<Vec<String>>,
 }
 
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Clone, Deserialize, schemars::JsonSchema)]
 pub struct OutlinePoint {
     pub x_mm: f64,
     pub y_mm: f64,
@@ -1833,6 +1947,47 @@ pub struct AddTextsArgs {
     pub texts: Vec<AddTextArgs>,
 }
 
+#[derive(Debug, Clone, Deserialize, schemars::JsonSchema)]
+pub struct AddShapeArgs {
+    /// `rect`, `circle` or `polygon`.
+    pub kind: String,
+    /// F.Silkscreen (default) / B.Silkscreen (plots) or Cmts.User / Dwgs.User / Eco1.User / Eco2.User (check-only). Never Edge.Cuts.
+    pub layer: Option<String>,
+    /// Stroke width mm. Default 0.15. Silk min 0.15; user layers min 0.05.
+    pub stroke_mm: Option<f64>,
+    /// Delete existing overlay graphics on this layer first. Default false.
+    pub replace: Option<bool>,
+    /// Rect bottom-left X (KiCad +y up).
+    pub origin_x_mm: Option<f64>,
+    pub origin_y_mm: Option<f64>,
+    /// Rect centre (alternative to origin).
+    pub center_x_mm: Option<f64>,
+    pub center_y_mm: Option<f64>,
+    /// Rect size.
+    pub width_mm: Option<f64>,
+    pub height_mm: Option<f64>,
+    /// Circle centre (also accepted as center_x_mm / center_y_mm).
+    pub x_mm: Option<f64>,
+    pub y_mm: Option<f64>,
+    pub radius_mm: Option<f64>,
+    pub diameter_mm: Option<f64>,
+    /// Polygon vertices in KiCad millimetres (closed automatically).
+    pub points: Option<Vec<OutlinePoint>>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct AddShapesArgs {
+    pub shapes: Vec<AddShapeArgs>,
+    /// Delete existing overlay graphics on every layer used in this batch. Default false. Never Edge.Cuts.
+    pub replace: Option<bool>,
+}
+
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+pub struct ClearShapesArgs {
+    /// Limit delete to this overlay layer. Omit to clear silk + user overlays. Never Edge.Cuts.
+    pub layer: Option<String>,
+}
+
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct AddTrackArgs {
     pub a_x_mm: f64,
@@ -1898,6 +2053,108 @@ pub struct SetZoneArgs {
 pub struct SetCopperLayersArgs {
     /// Even count 2–8. 4 enables F.Cu, In1.Cu, In2.Cu, B.Cu.
     pub copper_layer_count: u32,
+}
+
+async fn commit_shapes(
+    k: &Kicad,
+    specs: &[AddShapeArgs],
+    replace: bool,
+) -> Result<serde_json::Value, String> {
+    if specs.is_empty() {
+        return Err("add_shape needs at least one outline".into());
+    }
+    let mut items = Vec::with_capacity(specs.len());
+    let mut placed = Vec::with_capacity(specs.len());
+    let mut layers: Vec<crate::graphics::GraphicLayer> = Vec::new();
+    for spec in specs {
+        let made = crate::graphics::shape_any(&shape_spec_from_args(spec))?;
+        if !layers.iter().any(|l| l.id == made.layer.id) {
+            layers.push(made.layer);
+        }
+        placed.push(serde_json::json!({
+            "kind": made.kind,
+            "layer": made.layer.name,
+            "plots": made.layer.plots,
+            "stroke_mm": made.stroke_mm,
+        }));
+        items.push(made.item);
+    }
+    let n_req = items.len();
+    let session = k.begin_commit().await?;
+    let mut replaced = 0usize;
+    if replace {
+        let mut ids = Vec::new();
+        for layer in &layers {
+            ids.extend(k.managed_graphic_ids(Some(layer.name)).await?);
+        }
+        ids.sort();
+        ids.dedup();
+        if !ids.is_empty() {
+            match k.delete_ids(ids).await {
+                Ok(deleted) => replaced = deleted.len(),
+                Err(e) => {
+                    let _ = k.drop_commit(session).await;
+                    return Err(e);
+                }
+            }
+        }
+    }
+    match k.create_items(items).await {
+        Ok(n) => {
+            k.end_commit(session, &format!("kicad-mcp {n_req} overlay outlines"))
+                .await?;
+            let _ = k.refresh().await;
+            let plots = layers.iter().any(|l| l.plots);
+            let mut out = serde_json::json!({
+                "ok": true,
+                "count": n_req,
+                "items_created": n,
+                "replaced": replaced,
+                "placed": placed,
+            });
+            if specs.len() == 1 {
+                if let Some(first) = placed.first() {
+                    out["kind"] = first["kind"].clone();
+                    out["layer"] = first["layer"].clone();
+                    out["plots"] = first["plots"].clone();
+                    out["stroke_mm"] = first["stroke_mm"].clone();
+                }
+            }
+            if plots {
+                out["note"] = serde_json::json!(
+                    "Silk outlines plot to gerbers. clear_shapes before export_manufacturing unless this overlay belongs on the PCB. Cmts.User does not plot."
+                );
+            }
+            Ok(out)
+        }
+        Err(e) => {
+            let _ = k.drop_commit(session).await;
+            Err(e)
+        }
+    }
+}
+
+fn shape_spec_from_args(a: &AddShapeArgs) -> crate::graphics::ShapeSpec {
+    crate::graphics::ShapeSpec {
+        kind: a.kind.clone(),
+        layer: a.layer.clone(),
+        stroke_mm: a.stroke_mm,
+        origin_x_mm: a.origin_x_mm,
+        origin_y_mm: a.origin_y_mm,
+        center_x_mm: a.center_x_mm,
+        center_y_mm: a.center_y_mm,
+        width_mm: a.width_mm,
+        height_mm: a.height_mm,
+        x_mm: a.x_mm,
+        y_mm: a.y_mm,
+        radius_mm: a.radius_mm,
+        diameter_mm: a.diameter_mm,
+        points: a
+            .points
+            .as_ref()
+            .map(|pts| pts.iter().map(|p| (p.x_mm, p.y_mm)).collect())
+            .unwrap_or_default(),
+    }
 }
 
 async fn commit_connect(
@@ -1967,7 +2224,7 @@ async fn commit_disconnect(
 impl ServerHandler for KicadMcp {
     fn get_info(&self) -> ServerInfo {
         let write_note = if self.allow_ai_write {
-            "Write tools are ENABLED (--allow-ai-write): download_lcsc_part, make_wire_pad, make_mounting_hole, place_footprint, place_parts, place_matrix, move_footprint, remove_footprint, clear_board, clear_zones, set_board_outline, add_text, add_texts, connect_pins, connect_many, disconnect_pin, disconnect_many, add_track, add_tracks, add_via, add_vias, stitch_via, set_copper_zone, set_copper_layers, autoroute_nets, ripup_wire, check_drc, render_board, save_board, export_manufacturing."
+            "Write tools are ENABLED (--allow-ai-write): download_lcsc_part, make_wire_pad, make_mounting_hole, place_footprint, place_parts, place_matrix, move_footprint, remove_footprint, clear_board, clear_zones, set_board_outline, add_text, add_texts, add_shape, add_shapes, clear_shapes, connect_pins, connect_many, disconnect_pin, disconnect_many, add_track, add_tracks, add_via, add_vias, stitch_via, set_copper_zone, set_copper_layers, autoroute_nets, ripup_wire, check_drc, render_board, save_board, export_manufacturing."
         } else {
             "Write tools are DISABLED. Relaunch with --allow-ai-write."
         };
@@ -1988,6 +2245,9 @@ impl ServerHandler for KicadMcp {
              (set_board_outline); default origin is the sheet centre, not 0,0. Outline replace defaults to true. \
              Place on free F.CrtYd space inside the board; placement refuses courtyard overlap. \
              add_text / add_texts place F.Silkscreen labels (5V/GND/DATA next to wire pads) — never F.Cu, never footprint Value. \
+             add_shape / add_shapes draw unfilled outlines (rect/circle/polygon) for a mechanical cover overlay. \
+             Default F.Silkscreen (plots to gerbers — clear_shapes before export unless it belongs on the PCB). \
+             Prefer Cmts.User for a check-only overlay. Never Edge.Cuts, never copper, never filled. get_shapes to verify (polygon_points = outline vertices, not PolySet count). \
              Typical write path: clear_board, set_board_outline, place_parts or place_matrix, connect_many \
              (assigns every pad that shares a pin number, e.g. thermal pad 41), \
              disconnect_pin to put a pad back on unconnected after a mis-wire, \
@@ -2003,6 +2263,7 @@ impl ServerHandler for KicadMcp {
              After copper, check_drc (kicad-cli), check_board, then review_board (return path / pours / cap vias / PTH thermals / daisy / cap polarity — not 90° corners). \
              Do not edit .kicad_pcb by hand. \
              export_manufacturing writes JLCPCB files: <stem>_gerbers.zip + _bom.csv + _cpl.csv (needs kicad-cli). \
+             It warns if silk overlay outlines are still on the board (they plot); Cmts.User does not plot. \
              {write_note}"
             ),
         )

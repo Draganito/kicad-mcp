@@ -127,7 +127,7 @@ edit them by hand.
 - Default `replace=true` deletes existing Edge.Cuts (including when
   KiCad reports the layer as `BL_Edge_Cuts`) and refills copper zones.
 
-`clear_board` deletes footprints, tracks, vias, zones — Edge.Cuts stays.
+`clear_board` deletes footprints, tracks, vias, zones, silk text and overlay outlines — Edge.Cuts stays.
 
 ## 6. Parts
 
@@ -234,6 +234,32 @@ names (`5V`, `GND`, `DATA`) next to wire pads. Never F.Cu, never the
 footprint Value (export already strips U1/C3). Size default 1.0 mm
 (min 0.8). `clear_board` deletes these labels.
 
+### Overlay outlines (cover / mask)
+
+`add_shape` / `add_shapes` (max 150, one undo) draws **unfilled**
+rectangles, circles or polygons so you can overlay a mechanical cover
+on the LEDs and check which parts sit in the openings.
+
+- Default layer **F.Silkscreen** (visible on the parts; **plots to
+  gerbers**). `clear_shapes` before `export_manufacturing` unless that
+  outline belongs on the PCB. `export_manufacturing` **warns** if silk
+  overlays are still on the board (`warning` + `silk_overlay_count`).
+- **Cmts.User** / `Dwgs.User` / `Eco1.User` / `Eco2.User` do not plot —
+  use those for a check-only overlay. Turn on User.Comments in the KiCad
+  layer widget or the overlay is invisible.
+- Never Edge.Cuts (that is the board / a cutout), never copper, never
+  filled. `"edge.cuts"` is refused as a cutout, not as copper.
+- Rect: `origin_x_mm` / `origin_y_mm` (bottom-left, +y up) **or**
+  `center_x_mm` / `center_y_mm`, plus `width_mm` / `height_mm`.
+- Circle: `x_mm` / `y_mm` plus `radius_mm` or `diameter_mm`.
+- Polygon: `points: [{x_mm, y_mm}, …]` (closed automatically, max 400).
+- `stroke_mm` default 0.15 (silk floor 0.15 mm).
+- `replace=true` deletes existing overlay graphics on that layer first
+  (never Edge.Cuts).
+- `get_shapes` lists them. `polygon_points` is the outline **vertex
+  count** (closing duplicate omitted), not how many polygons sit in the
+  PolySet. `clear_shapes` (optional `layer`) removes them.
+
 `autoroute_nets` runs the optional KiCad Routing Tools **CLI** (not the
 wx dialog). Needs `kicad-routing-tools-setup` and KiCad 10 via `kicad-10`.
 `nets` is required — never `*` / every net. GND/VSS are refused (pour a
@@ -254,6 +280,7 @@ KiCad `BeginCommit` races.
 | `get_footprints` | Read — ref, position, rotation |
 | `get_nets` | Read — nets and pads |
 | `get_pads` | Read — baked pad truth (position, net, rotation, layers) |
+| `get_shapes` | Read — overlay outlines (silk / user; never Edge.Cuts) |
 | `check_placement` | Read — hard OK/fail: template pads vs baked pads |
 | `get_routing_scene` | Read — tracks/vias + ids; optional `net` |
 | `list_parts` | Read — templates including builtins |
@@ -269,10 +296,12 @@ KiCad `BeginCommit` races.
 | `place_matrix` | Write — grid |
 | `move_footprint` | Write — rigid move/rotate, nets stay, copper stays |
 | `remove_footprint` | Write |
-| `clear_board` | Write — parts + copper + silk text, outline stays |
+| `clear_board` | Write — parts + copper + silk text + overlay outlines, Edge.Cuts stays |
 | `clear_zones` | Write — zones only |
 | `set_board_outline` | Write — Edge.Cuts |
 | `add_text` / `add_texts` | Write — silk label (F/B.Silkscreen) |
+| `add_shape` / `add_shapes` | Write — unfilled overlay outline (silk or Cmts.User) |
+| `clear_shapes` | Write — overlay outlines only (never Edge.Cuts) |
 | `connect_pins` / `connect_many` | Write — ratsnest (every same-number pad) |
 | `disconnect_pin` / `disconnect_many` | Write — pin back to unconnected |
 | `add_track` / `add_tracks` | Write — track |
@@ -301,7 +330,10 @@ Every write lands on KiCad's undo stack (**Ctrl+Z**), except
 asks; `autoroute_nets` and `check_drc` save internally.
 
 `export_manufacturing` saves the open board, refills zones, and writes
-three JLCPCB files into the project folder (or `out_dir`):
+three JLCPCB files into the project folder (or `out_dir`).
+If overlay outlines remain on F/B.Silkscreen they **plot**; the tool
+returns `warning` and `silk_overlay_count` instead of failing. Use
+`Cmts.User` for a check-only overlay, or `clear_shapes` first.
 
 | File | JLCPCB slot |
 | --- | --- |
@@ -343,6 +375,6 @@ MCP only: `SKIP_ROUTING_TOOLS=1 dist/make_beta_package.sh`.
 - No schematic editor. Autorouter only via `autoroute_nets`
   (named nets, companion deb).
 - No editing `.kicad_pcb` through this server.
-- Max 150 parts / tracks / vias per undo batch.
+- Max 150 parts / tracks / vias / overlay outlines per undo batch.
 - Polygon outline max 400 points.
 - Target is **KiCad 10**. System 9 is geometry-only; nets do not persist.

@@ -12,7 +12,7 @@ Cursor  --stdio MCP-->  kicad-mcp  --KiCad IPC-->  pcbnew (KiCad 10)
 
 ## Crates
 
-- `kicad-mcp` — MCP tools, IPC session, placement, nets, copper, silk, review, outline.
+- `kicad-mcp` — MCP tools, IPC session, placement, nets, copper, silk, graphics, review, outline.
 - `easyeda-kicad` — fetch an LCSC C-number and emit `.kicad_mod` /
   `.kicad_sym` / `{template}.pins.json` (Y-flip EasyEDA → KiCad).
   Pin names/functions are EasyEDA SVG names, not a manufacturer PDF.
@@ -60,6 +60,16 @@ not the UI name `Edge.Cuts`. `set_board_outline` matches both, deletes,
 recreates, then refills zones. An inner closed Edge.Cuts path is a
 **cutout**; leftover rectangles punch holes in copper pours.
 
+## Overlay graphics
+
+`add_shape` creates a `BoardGraphicShape` (native rect / circle /
+polygon, always unfilled) on F/B.Silkscreen or a user layer.
+`clear_shapes` deletes only those managed layers. Edge.Cuts is
+never in that set — a cover overlay must not become a board cutout.
+Layer parsing matches Edge.Cuts **before** copper (`edge.cuts`
+contains the substring `.cu`). `get_shapes` decodes the PolyLine and
+reports `polygon_points` as outline vertices, not `PolySet.polygons.len()`.
+
 ## Packaging
 
 `dist/make_beta_package.sh` builds `target/release/kicad-mcp` and runs
@@ -75,7 +85,9 @@ tool is `contrib/aristo-d2-led-panel`. Live scratch boards under
 does not parse `.kicad_pcb`). Gerber silk is plotted with
 `--exclude-refdes` and `--exclude-value` so JLCPCB DFM does not report
 silkscreen-to-pad / silkscreen-to-hole on dense boards; designators
-stay in BOM/CPL only. BOM rows are grouped from live footprints
+stay in BOM/CPL only. Overlay outlines on F/B.Silkscreen plot with
+that silk; the tool warns (`warning` + `silk_overlay_count`) instead of
+refusing. BOM rows are grouped from live footprints
 (LCSC C-number from the EasyEDA template name). CPL is the KiCad
 position CSV rewritten to JLCPCB columns:
 `<stem>_gerbers.zip`, `<stem>_bom.csv`, `<stem>_cpl.csv`.

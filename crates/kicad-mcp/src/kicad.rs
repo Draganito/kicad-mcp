@@ -99,6 +99,36 @@ pub struct ViaInfo {
     pub y_mm: Option<f64>,
 }
 
+#[derive(Debug, Serialize)]
+pub struct ShapeInfo {
+    pub id: Option<String>,
+    pub kind: String,
+    pub layer: String,
+    pub plots: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stroke_mm: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub origin_x_mm: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub origin_y_mm: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub width_mm: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub height_mm: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub x_mm: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub y_mm: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub radius_mm: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub a_mm: Option<[f64; 2]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub b_mm: Option<[f64; 2]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub polygon_points: Option<usize>,
+}
+
 pub struct Kicad {
     client: KiCadClient,
 }
@@ -376,6 +406,48 @@ impl Kicad {
             .collect())
     }
 
+    /// Board graphic shapes on silk / user layers (never Edge.Cuts).
+    /// Polygon `polygon_points` is the outline vertex count, not PolySet length.
+    pub async fn board_shapes(
+        &self,
+        layer: Option<&str>,
+    ) -> Result<Vec<ShapeInfo>, String> {
+        let filter = match layer {
+            Some(name) => Some(crate::graphics::parse_graphic_layer(Some(name))?),
+            None => None,
+        };
+        let raw = self
+            .raw_items(vec![PcbObjectTypeCode::new_shape().code])
+            .await?;
+        Ok(raw
+            .into_iter()
+            .filter_map(|any| crate::graphics::shape_snap_from_any(&any))
+            .filter(|snap| {
+                crate::graphics::is_managed_graphic_layer(snap.layer.id, snap.layer.name)
+            })
+            .filter(|snap| {
+                filter
+                    .as_ref()
+                    .map(|want| snap.layer.id == want.id)
+                    .unwrap_or(true)
+            })
+            .map(shape_from_snap)
+            .collect())
+    }
+
+    /// Ids of managed board graphics (silk / user), never Edge.Cuts.
+    pub async fn managed_graphic_ids(
+        &self,
+        layer: Option<&str>,
+    ) -> Result<Vec<String>, String> {
+        Ok(self
+            .board_shapes(layer)
+            .await?
+            .into_iter()
+            .filter_map(|s| s.id)
+            .collect())
+    }
+
     /// Free board text and text boxes (not footprint Reference/Value fields).
     pub async fn board_text_ids(&self) -> Result<Vec<String>, String> {
         let items = self
@@ -520,6 +592,26 @@ fn via_from_pcb(v: PcbVia) -> ViaInfo {
         net: v.net.map(|n| n.name),
         x_mm: v.position_nm.map(|p| nm_to_mm(p.x_nm)),
         y_mm: v.position_nm.map(|p| nm_to_mm(p.y_nm)),
+    }
+}
+
+fn shape_from_snap(snap: crate::graphics::GraphicSnap) -> ShapeInfo {
+    ShapeInfo {
+        id: snap.id,
+        kind: snap.kind.to_string(),
+        layer: snap.layer.name.to_string(),
+        plots: snap.layer.plots,
+        stroke_mm: snap.stroke_mm,
+        origin_x_mm: snap.origin_x_mm,
+        origin_y_mm: snap.origin_y_mm,
+        width_mm: snap.width_mm,
+        height_mm: snap.height_mm,
+        x_mm: snap.x_mm,
+        y_mm: snap.y_mm,
+        radius_mm: snap.radius_mm,
+        a_mm: snap.a_mm,
+        b_mm: snap.b_mm,
+        polygon_points: snap.polygon_points,
     }
 }
 
