@@ -79,6 +79,9 @@ pub struct ModPad {
     /// Slot length (drill y) for oblong drills, e.g. USB shield slots.
     /// None means a round hole.
     pub drill_h_mm: Option<f64>,
+    /// Soldermask opening on the pad. Mounting-hole keepout copper is
+    /// `false` so the 7.5 mm ring stays under mask (laminate, not HASL).
+    pub mask: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -209,6 +212,23 @@ pub struct Aabb {
 }
 
 impl Aabb {
+    pub fn from_centered(width_mm: f64, height_mm: f64) -> Self {
+        Self {
+            min_x: -width_mm / 2.0,
+            min_y: -height_mm / 2.0,
+            max_x: width_mm / 2.0,
+            max_y: height_mm / 2.0,
+        }
+    }
+
+    pub fn w(self) -> f64 {
+        self.max_x - self.min_x
+    }
+
+    pub fn h(self) -> f64 {
+        self.max_y - self.min_y
+    }
+
     pub fn overlaps(&self, other: &Aabb, gap_mm: f64) -> bool {
         self.min_x < other.max_x + gap_mm
             && self.max_x + gap_mm > other.min_x
@@ -303,6 +323,185 @@ pub fn aabb_at(local: &Aabb, x_mm: f64, y_mm: f64, rot_deg: f64) -> Aabb {
         min_y,
         max_x,
         max_y,
+    }
+}
+
+/// Four corners of a local AABB, rotated like [`world_xy`] (board millimetres).
+pub fn body_corners(local: &Aabb, x_mm: f64, y_mm: f64, rot_deg: f64) -> [(f64, f64); 4] {
+    let spec = PlaceSpec {
+        template: "",
+        reference: "",
+        x_mm,
+        y_mm,
+        rotation_deg: rot_deg,
+        pads: &[],
+    };
+    [
+        world_xy(local.min_x, local.min_y, &spec),
+        world_xy(local.max_x, local.min_y, &spec),
+        world_xy(local.max_x, local.max_y, &spec),
+        world_xy(local.min_x, local.max_y, &spec),
+    ]
+}
+
+/// Package plastic from a JLCPCB name (`L3.5-W3.5`, `R0603`), centred on
+/// the footprint origin. Courtyard is the EasyEDA silk bbox and often
+/// includes pin-1 text — do not use it as the body.
+pub fn package_body_local(name: &str, pads: &[ModPad]) -> Option<Aabb> {
+    let (l, w) = parse_package_lw_mm(name)?;
+    let (bx, by) = orient_package_body(l, w, name, pads);
+    if bx < 0.5 || by < 0.5 || bx > 400.0 || by > 400.0 {
+        return None;
+    }
+    Some(Aabb::from_centered(bx, by))
+}
+
+/// `L3.5-W3.5` (not `LS2.8`) or EIA chip codes (`R0603`, `C1206`, `F1812`).
+pub fn parse_package_lw_mm(name: &str) -> Option<(f64, f64)> {
+    if let Some(pair) = parse_lw_token(name) {
+        return Some(pair);
+    }
+    parse_eia_chip_mm(name)
+}
+
+fn parse_lw_token(name: &str) -> Option<(f64, f64)> {
+    let bytes = name.as_bytes();
+    let n = bytes.len();
+    let mut i = 0;
+    while i + 3 < n {
+        let bound = i == 0 || bytes[i - 1] == b'_' || bytes[i - 1] == b'-';
+        if bound && bytes[i] == b'L' && bytes.get(i + 1) != Some(&b'S') {
+            if let Some((l, l_len)) = parse_leading_f64(&name[i + 1..]) {
+                let rest = &name[i + 1 + l_len..];
+                if rest.starts_with("-W") || rest.starts_with("_W") {
+                    if let Some((w, _)) = parse_leading_f64(&rest[2..]) {
+                        if l > 0.2 && l < 200.0 && w > 0.2 && w < 200.0 {
+                            return Some((l, w));
+                        }
+                    }
+                }
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+fn parse_ls_mm(name: &str) -> Option<f64> {
+    let bytes = name.as_bytes();
+    let n = bytes.len();
+    let mut i = 0;
+    while i + 2 < n {
+        let bound = i == 0 || bytes[i - 1] == b'_' || bytes[i - 1] == b'-';
+        if bound && bytes[i] == b'L' && bytes[i + 1] == b'S' {
+            if let Some((v, _)) = parse_leading_f64(&name[i + 2..]) {
+                if v > 0.2 && v < 200.0 {
+                    return Some(v);
+                }
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+fn parse_leading_f64(s: &str) -> Option<(f64, usize)> {
+    let mut end = 0usize;
+    for (i, c) in s.char_indices() {
+        if c.is_ascii_digit() || c == '.' {
+            end = i + c.len_utf8();
+        } else {
+            break;
+        }
+    }
+    if end == 0 {
+        return None;
+    }
+    let v: f64 = s[..end].parse().ok()?;
+    Some((v, end))
+}
+
+fn parse_eia_chip_mm(name: &str) -> Option<(f64, f64)> {
+    const SIZES: &[(&str, f64, f64)] = &[
+        ("0201", 0.6, 0.3),
+        ("0402", 1.0, 0.5),
+        ("0603", 1.6, 0.8),
+        ("0805", 2.0, 1.25),
+        ("1206", 3.2, 1.6),
+        ("1210", 3.2, 2.5),
+        ("1812", 4.5, 3.2),
+        ("2010", 5.0, 2.5),
+        ("2512", 6.35, 3.2),
+    ];
+    for (code, l, w) in SIZES {
+        for prefix in ["R", "C", "F"] {
+            let token = format!("_{prefix}{code}");
+            if name.ends_with(&token) || name.contains(&format!("{token}_")) {
+                return Some((*l, *w));
+            }
+        }
+    }
+    None
+}
+
+fn pad_center_span(pads: &[ModPad]) -> (f64, f64) {
+    let mut min_x = f64::INFINITY;
+    let mut min_y = f64::INFINITY;
+    let mut max_x = f64::NEG_INFINITY;
+    let mut max_y = f64::NEG_INFINITY;
+    for p in pads {
+        min_x = min_x.min(p.x_mm);
+        max_x = max_x.max(p.x_mm);
+        min_y = min_y.min(p.y_mm);
+        max_y = max_y.max(p.y_mm);
+    }
+    if !min_x.is_finite() {
+        return (0.0, 0.0);
+    }
+    (max_x - min_x, max_y - min_y)
+}
+
+fn closer(target: f64, a: f64, b: f64) -> f64 {
+    if (target - a).abs() <= (target - b).abs() {
+        a
+    } else {
+        b
+    }
+}
+
+/// Map JLCPCB L/W onto local X/Y. `LS` is the pad-row span (leads stick
+/// out along that axis). Without `LS`, the longer body side follows the
+/// longer pad-centre span (chip resistors, 2-pin caps).
+fn orient_package_body(l: f64, w: f64, name: &str, pads: &[ModPad]) -> (f64, f64) {
+    if (l - w).abs() < 0.05 {
+        return (l, w);
+    }
+    let (sx, sy) = pad_center_span(pads);
+    if let Some(ls) = parse_ls_mm(name) {
+        let lead_is_x = (sx - ls).abs() <= (sy - ls).abs();
+        let along_lead = if l < ls && w < ls {
+            closer(ls, l, w)
+        } else if l < ls {
+            l
+        } else if w < ls {
+            w
+        } else {
+            l.min(w)
+        };
+        let other = if (along_lead - l).abs() <= (along_lead - w).abs() {
+            w
+        } else {
+            l
+        };
+        if lead_is_x {
+            (along_lead, other)
+        } else {
+            (other, along_lead)
+        }
+    } else if sx >= sy {
+        (l.max(w), l.min(w))
+    } else {
+        (l.min(w), l.max(w))
     }
 }
 
@@ -410,6 +609,9 @@ fn parse_one_pad(sexpr: &str) -> Result<ModPad, String> {
         height_mm: size.get(1).copied().unwrap_or(size[0]),
         drill_mm: drill.as_ref().map(|v| v[0]),
         drill_h_mm: drill.as_ref().and_then(|v| v.get(1).copied()),
+        mask: sexpr.contains("*.Mask")
+            || sexpr.contains("F.Mask")
+            || sexpr.contains("B.Mask"),
     })
 }
 
@@ -529,12 +731,18 @@ fn pad_any(pad: &ModPad) -> Any {
                 pad_stack_layer(BL_B_CU, shape, pad.width_mm, pad.height_mm),
             ],
         ),
-        ModPadKind::Npth => (
-            PT_NPTH,
-            PST_NORMAL,
-            vec![BL_F_CU, BL_B_CU, BL_F_MASK, BL_B_MASK],
-            vec![pad_stack_layer(BL_F_CU, shape, pad.width_mm, pad.height_mm)],
-        ),
+        ModPadKind::Npth => {
+            let mut layers = vec![BL_F_CU, BL_B_CU];
+            if pad.mask {
+                layers.extend([BL_F_MASK, BL_B_MASK]);
+            }
+            (
+                PT_NPTH,
+                PST_NORMAL,
+                layers,
+                vec![pad_stack_layer(BL_F_CU, shape, pad.width_mm, pad.height_mm)],
+            )
+        }
     };
     let proto = Pad {
         locked: LS_UNLOCKED,
@@ -832,6 +1040,21 @@ mod tests {
         let pads = parse_kicad_mod_pads(src).unwrap();
         assert_eq!(pads[0].kind, ModPadKind::Npth);
         assert_eq!(pads[0].drill_mm, Some(3.2));
+        assert!(pads[0].mask);
+    }
+
+    #[test]
+    fn mounting_hole_keepout_pad_has_no_mask_opening() {
+        let src = r#"(footprint "MountingHole_M3_NPTH"
+  (pad "" npth circle (at 0 0) (size 7.5 7.5) (drill 3.2) (layers "*.Cu"))
+)"#;
+        let pads = parse_kicad_mod_pads(src).unwrap();
+        assert!(!pads[0].mask);
+        let decoded = Pad::decode(pad_any(&pads[0]).value.as_slice()).unwrap();
+        let layers = decoded.pad_stack.unwrap().layers;
+        assert!(!layers.contains(&BL_F_MASK));
+        assert!(!layers.contains(&BL_B_MASK));
+        assert!(layers.contains(&BL_F_CU));
     }
 
     /// Baked proto keeps the oblong drill: diameter x≠y and shape OBLONG.
@@ -848,6 +1071,7 @@ mod tests {
             height_mm: 2.0,
             drill_mm: Some(0.6),
             drill_h_mm: Some(1.7),
+            mask: true,
         };
         let any = pad_any(&pad);
         let decoded = Pad::decode(any.value.as_slice()).unwrap();
@@ -880,6 +1104,7 @@ mod tests {
             height_mm: 2.8,
             drill_mm: Some(1.4),
             drill_h_mm: None,
+            mask: true,
         };
         let decoded = Pad::decode(pad_any(&pad).value.as_slice()).unwrap();
         let stack = decoded.pad_stack.unwrap();
@@ -906,6 +1131,90 @@ mod tests {
         assert!(!a.overlaps(&b, 0.5));
         let stacked = aabb_at(&cy, 0.2, 0.0, 0.0);
         assert!(a.overlaps(&stacked, 0.5));
+    }
+
+    fn pad_at(x: f64, y: f64) -> ModPad {
+        ModPad {
+            number: "1".into(),
+            kind: ModPadKind::SmdFront,
+            shape: ModPadShape::Rect,
+            x_mm: x,
+            y_mm: y,
+            rot_deg: 0.0,
+            width_mm: 1.0,
+            height_mm: 1.0,
+            drill_mm: None,
+            drill_h_mm: None,
+            mask: true,
+        }
+    }
+
+    #[test]
+    fn package_body_ws2812b_is_3mm5_square_not_silk_bbox() {
+        let name = "C42417599_LED-SMD_4P-L3.5-W3.5-TL_WS2812B";
+        let pads = [
+            pad_at(-1.6375, -0.89),
+            pad_at(-1.6375, 0.89),
+            pad_at(1.6375, 0.89),
+            pad_at(1.6375, -0.89),
+        ];
+        let body = package_body_local(name, &pads).unwrap();
+        assert!((body.w() - 3.5).abs() < 1e-9, "w {}", body.w());
+        assert!((body.h() - 3.5).abs() < 1e-9, "h {}", body.h());
+        assert!((body.min_x + 1.75).abs() < 1e-9);
+    }
+
+    #[test]
+    fn package_body_sot23_puts_width_along_leads() {
+        let name = "C7484_SOT-23-5_L3.0-W1.7-P0.95-LS2.8-BR";
+        let pads = [
+            pad_at(-1.3001, 0.95),
+            pad_at(-1.3001, -0.95),
+            pad_at(1.3001, -0.95),
+            pad_at(1.3001, 0.0),
+            pad_at(1.3001, 0.95),
+        ];
+        let body = package_body_local(name, &pads).unwrap();
+        assert!((body.w() - 1.7).abs() < 1e-9, "w {}", body.w());
+        assert!((body.h() - 3.0).abs() < 1e-9, "h {}", body.h());
+    }
+
+    #[test]
+    fn package_body_soic_length_along_pin_row() {
+        let name = "C155176_SOIC-14_L8.7-W3.9-P1.27-LS6.0-BL";
+        let mut pads = Vec::new();
+        for i in 0..7 {
+            let x = -3.81 + f64::from(i) * 1.27;
+            pads.push(pad_at(x, 2.619));
+            pads.push(pad_at(x, -2.619));
+        }
+        let body = package_body_local(name, &pads).unwrap();
+        assert!((body.w() - 8.7).abs() < 1e-9, "w {}", body.w());
+        assert!((body.h() - 3.9).abs() < 1e-9, "h {}", body.h());
+    }
+
+    #[test]
+    fn package_body_sod323_length_along_two_pads() {
+        let name = "C502527_SOD-323_L1.8-W1.3-LS2.5-FD";
+        let pads = [pad_at(-1.1999, 0.0), pad_at(1.1999, 0.0)];
+        let body = package_body_local(name, &pads).unwrap();
+        assert!((body.w() - 1.8).abs() < 1e-9, "w {}", body.w());
+        assert!((body.h() - 1.3).abs() < 1e-9, "h {}", body.h());
+    }
+
+    #[test]
+    fn package_body_r0603_from_eia_code() {
+        let pads = [pad_at(-0.7534, 0.0), pad_at(0.7534, 0.0)];
+        let body = package_body_local("C23138_R0603", &pads).unwrap();
+        assert!((body.w() - 1.6).abs() < 1e-9, "w {}", body.w());
+        assert!((body.h() - 0.8).abs() < 1e-9, "h {}", body.h());
+    }
+
+    #[test]
+    fn package_lw_does_not_eat_lead_span() {
+        let (l, w) = parse_package_lw_mm("SOT-23-5_L3.0-W1.7-P0.95-LS2.8-BR").unwrap();
+        assert!((l - 3.0).abs() < 1e-9);
+        assert!((w - 1.7).abs() < 1e-9);
     }
 
     #[test]

@@ -2,6 +2,7 @@
 //! One connection, serialized through a mutex — KiCad handles API
 //! events on the UI thread and does not want parallel sockets.
 
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -127,6 +128,18 @@ pub struct ShapeInfo {
     pub b_mm: Option<[f64; 2]>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub polygon_points: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tag: Option<String>,
+    /// Grouped overlay BoardText (table cells). Untagged `add_text` labels are omitted.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct OverlayGroup {
+    pub id: Option<String>,
+    pub tag: String,
+    pub member_ids: Vec<String>,
 }
 
 pub struct Kicad {
@@ -339,12 +352,11 @@ impl Kicad {
     }
 
     pub async fn create_items(&self, items: Vec<Any>) -> Result<usize, String> {
-        let created = self
-            .client
-            .create_items(items, None)
-            .await
-            .map_err(fmt_err)?;
-        Ok(created.len())
+        Ok(self.create_items_created(items).await?.len())
+    }
+
+    pub async fn create_items_created(&self, items: Vec<Any>) -> Result<Vec<Any>, String> {
+        self.client.create_items(items, None).await.map_err(fmt_err)
     }
 
     pub async fn update_items(&self, items: Vec<Any>) -> Result<usize, String> {
@@ -406,20 +418,26 @@ impl Kicad {
             .collect())
     }
 
-    /// Board graphic shapes on silk / user layers (never Edge.Cuts).
+    /// Board overlay graphics on silk / user layers (never Edge.Cuts).
     /// Polygon `polygon_points` is the outline vertex count, not PolySet length.
+    /// `tag` is the overlay group name without the `kicad-mcp:` prefix.
+    /// Grouped overlay BoardText (table cells) is included as `kind: text`.
+    /// Untagged `add_text` labels (5V/GND) are omitted.
     pub async fn board_shapes(
         &self,
         layer: Option<&str>,
+        tag: Option<&str>,
     ) -> Result<Vec<ShapeInfo>, String> {
         let filter = match layer {
             Some(name) => Some(crate::graphics::parse_graphic_layer(Some(name))?),
             None => None,
         };
+        let want_tag = crate::graphics::parse_overlay_tag(tag)?;
+        let id_to_tag = self.overlay_tag_by_member_id().await?;
         let raw = self
             .raw_items(vec![PcbObjectTypeCode::new_shape().code])
             .await?;
-        Ok(raw
+        let mut out: Vec<ShapeInfo> = raw
             .into_iter()
             .filter_map(|any| crate::graphics::shape_snap_from_any(&any))
             .filter(|snap| {
@@ -431,21 +449,176 @@ impl Kicad {
                     .map(|want| snap.layer.id == want.id)
                     .unwrap_or(true)
             })
-            .map(shape_from_snap)
-            .collect())
+            .map(|snap| {
+                let tag = snap.id.as_ref().and_then(|id| id_to_tag.get(id).cloned());
+                shape_from_snap(snap, tag)
+            })
+            .filter(|info| {
+                want_tag
+                    .as_ref()
+                    .map(|want| info.tag.as_deref() == Some(want.as_str()))
+                    .unwrap_or(true)
+            })
+            .collect();
+        if !id_to_tag.is_empty() {
+            let items = self
+                .client
+                .get_items_by_type_codes(vec![PcbObjectTypeCode::new_text().code])
+                .await
+                .map_err(fmt_err)?;
+            let mut texts = Vec::new();
+            for item in items {
+                let PcbItem::BoardText(t) = item else {
+                    continue;
+                };
+                let Some(id) = t.id.as_ref() else {
+                    continue;
+                };
+                let Some(tag) = id_to_tag.get(id).cloned() else {
+                    continue;
+                };
+                if let Some(want) = want_tag.as_ref() {
+                    if tag.as_str() != want.as_str() {
+                        continue;
+                    }
+                }
+                let Some(info) = shape_from_overlay_text(t, tag) else {
+                    continue;
+                };
+                if let Some(want) = filter.as_ref() {
+                    if crate::graphics::parse_graphic_layer(Some(&info.layer))
+                        .map(|l| l.id)
+                        .ok()
+                        != Some(want.id)
+                    {
+                        continue;
+                    }
+                }
+                texts.push(info);
+            }
+            texts.sort_by_key(|s| {
+                crate::graphics::overlay_text_read_key(
+                    &s.layer,
+                    s.x_mm.unwrap_or(0.0),
+                    s.y_mm.unwrap_or(0.0),
+                )
+            });
+            out.extend(texts);
+        }
+        Ok(out)
     }
 
     /// Ids of managed board graphics (silk / user), never Edge.Cuts.
     pub async fn managed_graphic_ids(
         &self,
         layer: Option<&str>,
+        tag: Option<&str>,
     ) -> Result<Vec<String>, String> {
         Ok(self
-            .board_shapes(layer)
+            .board_shapes(layer, tag)
             .await?
             .into_iter()
             .filter_map(|s| s.id)
             .collect())
+    }
+
+    /// Overlay groups we created (`kicad-mcp:<tag>`). Never a user-named group.
+    pub async fn overlay_groups(&self) -> Result<Vec<OverlayGroup>, String> {
+        let items = self
+            .client
+            .get_items_by_type_codes(vec![PcbObjectTypeCode::new_group().code])
+            .await
+            .map_err(fmt_err)?;
+        Ok(items
+            .into_iter()
+            .filter_map(|item| match item {
+                PcbItem::Group(g) => {
+                    let tag = crate::graphics::tag_from_group_name(&g.name)?;
+                    Some(OverlayGroup {
+                        id: g.id,
+                        tag,
+                        member_ids: g.item_ids,
+                    })
+                }
+                _ => None,
+            })
+            .collect())
+    }
+
+    pub async fn overlay_group_ids(&self) -> Result<Vec<String>, String> {
+        Ok(self
+            .overlay_groups()
+            .await?
+            .into_iter()
+            .filter_map(|g| g.id)
+            .collect())
+    }
+
+    /// Member + group ids for one overlay tag (and the group object itself).
+    pub async fn overlay_ids_for_tag(&self, tag: &str) -> Result<Vec<String>, String> {
+        let want = crate::graphics::parse_overlay_tag(Some(tag))?
+            .ok_or_else(|| "tag is empty".to_string())?;
+        let mut ids = Vec::new();
+        let mut seen = HashSet::new();
+        for g in self.overlay_groups().await? {
+            if g.tag != want {
+                continue;
+            }
+            for id in g.member_ids {
+                if seen.insert(id.clone()) {
+                    ids.push(id);
+                }
+            }
+            if let Some(id) = g.id {
+                if seen.insert(id.clone()) {
+                    ids.push(id);
+                }
+            }
+        }
+        Ok(ids)
+    }
+
+    async fn overlay_tag_by_member_id(&self) -> Result<HashMap<String, String>, String> {
+        let mut map = HashMap::new();
+        for g in self.overlay_groups().await? {
+            for id in g.member_ids {
+                map.insert(id, g.tag.clone());
+            }
+        }
+        Ok(map)
+    }
+
+    /// Create `kicad-mcp:<tag>` groups. Members must already be on the board
+    /// (previous commit). KiCad 10.0.6 `PCB_GROUP::GetLayerSet` is the union of
+    /// members found on the board; same-commit members look empty and CreateItems
+    /// returns `no overlapping layers`.
+    pub async fn create_overlay_groups(
+        &self,
+        tags: &[(String, Vec<String>)],
+    ) -> Result<usize, String> {
+        let groups: Vec<_> = tags
+            .iter()
+            .filter(|(_, members)| !members.is_empty())
+            .map(|(tag, members)| {
+                crate::graphics::group_any(&crate::graphics::group_name_for_tag(tag), members)
+            })
+            .collect();
+        if groups.is_empty() {
+            return Ok(0);
+        }
+        let session = self.begin_commit().await?;
+        match self.create_items(groups).await {
+            Ok(n) => {
+                self.end_commit(session, "kicad-mcp overlay tag group")
+                    .await?;
+                let _ = self.refresh().await;
+                Ok(n)
+            }
+            Err(e) => {
+                let _ = self.drop_commit(session).await;
+                Err(e)
+            }
+        }
     }
 
     /// Free board text and text boxes (not footprint Reference/Value fields).
@@ -595,7 +768,7 @@ fn via_from_pcb(v: PcbVia) -> ViaInfo {
     }
 }
 
-fn shape_from_snap(snap: crate::graphics::GraphicSnap) -> ShapeInfo {
+fn shape_from_snap(snap: crate::graphics::GraphicSnap, tag: Option<String>) -> ShapeInfo {
     ShapeInfo {
         id: snap.id,
         kind: snap.kind.to_string(),
@@ -612,7 +785,38 @@ fn shape_from_snap(snap: crate::graphics::GraphicSnap) -> ShapeInfo {
         a_mm: snap.a_mm,
         b_mm: snap.b_mm,
         polygon_points: snap.polygon_points,
+        tag,
+        text: None,
     }
+}
+
+fn shape_from_overlay_text(
+    t: kicad_ipc_rs::model::board::PcbBoardText,
+    tag: String,
+) -> Option<ShapeInfo> {
+    let layer = crate::graphics::graphic_layer_from_id(t.layer.id)?;
+    if !crate::graphics::is_managed_graphic_layer(layer.id, layer.name) {
+        return None;
+    }
+    Some(ShapeInfo {
+        id: t.id,
+        kind: "text".into(),
+        layer: layer.name.to_string(),
+        plots: layer.plots,
+        stroke_mm: None,
+        origin_x_mm: None,
+        origin_y_mm: None,
+        width_mm: None,
+        height_mm: None,
+        x_mm: t.position_nm.map(|p| nm_to_mm(p.x_nm)),
+        y_mm: t.position_nm.map(|p| nm_to_mm(p.y_nm)),
+        radius_mm: None,
+        a_mm: None,
+        b_mm: None,
+        polygon_points: None,
+        tag: Some(tag),
+        text: t.text,
+    })
 }
 
 fn vec_mm(p: Vector2Nm) -> [f64; 2] {
@@ -662,5 +866,152 @@ mod tests {
         assert!(!net_ipc_persists("9.0.2+dfsg-1"));
         assert!(net_ipc_persists("10.0.5"));
         assert!(net_ipc_persists("10.0.5+dfsg-1"));
+    }
+
+    #[tokio::test]
+    #[ignore = "needs a running KiCad PCB editor with IPC API"]
+    async fn overlay_tag_group_after_members_committed() {
+        let k = super::Kicad::connect().await.expect("KiCad IPC");
+        assert!(
+            k.summary().await.expect("summary").has_open_board,
+            "open a board in KiCad first"
+        );
+
+        // Drop leftover comments from earlier MCP tests; keep silk and the two 4x5 frames.
+        let keep: Vec<_> = k
+            .board_shapes(None, None)
+            .await
+            .expect("shapes")
+            .into_iter()
+            .filter(|s| {
+                s.plots
+                    || (s.kind == "rect"
+                        && s.width_mm.is_some()
+                        && s.height_mm.is_some()
+                        && ((s.width_mm.unwrap() - 101.6).abs() < 0.05
+                            && (s.height_mm.unwrap() - 127.0).abs() < 0.05
+                            || (s.width_mm.unwrap() - 127.0).abs() < 0.05
+                                && (s.height_mm.unwrap() - 101.6).abs() < 0.05))
+            })
+            .filter_map(|s| s.id)
+            .collect();
+        let leftover: Vec<_> = k
+            .board_shapes(Some("Cmts.User"), None)
+            .await
+            .expect("comments")
+            .into_iter()
+            .filter_map(|s| s.id)
+            .filter(|id| !keep.contains(id))
+            .collect();
+        let mut cleanup = leftover;
+        cleanup.extend(k.overlay_ids_for_tag("mcp-test").await.unwrap_or_default());
+        cleanup.sort();
+        cleanup.dedup();
+        if !cleanup.is_empty() {
+            let session = k.begin_commit().await.expect("cleanup commit");
+            match k.delete_ids(cleanup).await {
+                Ok(_) => {
+                    k.end_commit(session, "kicad-mcp live overlay cleanup")
+                        .await
+                        .expect("end cleanup");
+                }
+                Err(e) => {
+                    let _ = k.drop_commit(session).await;
+                    panic!("cleanup leftover overlay failed: {e}");
+                }
+            }
+            let _ = k.refresh().await;
+        }
+
+        let before = k.board_shapes(None, None).await.expect("before");
+        let silk = before.iter().filter(|s| s.plots).count();
+        let frames = before
+            .iter()
+            .filter(|s| !s.plots && s.kind == "rect")
+            .count();
+        assert!(silk >= 1, "expected the 40×20 silk test rect to stay");
+        assert!(frames >= 2, "expected the two 4×5 comment frames to stay");
+
+        let spec = crate::graphics::ShapeSpec {
+            kind: "table".into(),
+            center_x_mm: Some(148.5),
+            center_y_mm: Some(105.0),
+            rows: Some(2),
+            cols: Some(3),
+            cell_width_mm: Some(8.0),
+            cell_height_mm: Some(6.0),
+            tag: Some("mcp-test".into()),
+            ..Default::default()
+        };
+        let made = crate::graphics::shape_items(&spec).expect("table");
+        assert_eq!(made.len(), 4);
+        let items: Vec<_> = made.into_iter().map(|m| m.item).collect();
+        let session = k.begin_commit().await.expect("shapes commit");
+        let created = match k.create_items_created(items).await {
+            Ok(c) => {
+                k.end_commit(session, "kicad-mcp live overlay table")
+                    .await
+                    .expect("end shapes");
+                let _ = k.refresh().await;
+                c
+            }
+            Err(e) => {
+                let _ = k.drop_commit(session).await;
+                panic!("create table failed: {e}");
+            }
+        };
+        let ids: Vec<String> = created
+            .iter()
+            .filter_map(crate::graphics::graphic_id_from_any)
+            .collect();
+        assert_eq!(ids.len(), 4, "KiCad must return shape ids");
+        k.create_overlay_groups(&[("mcp-test".into(), ids)])
+            .await
+            .expect("group after members on board");
+
+        let tagged = k
+            .board_shapes(None, Some("mcp-test"))
+            .await
+            .expect("tagged");
+        assert_eq!(tagged.len(), 4, "table expands to 4 tagged items");
+        assert!(tagged.iter().all(|s| s.tag.as_deref() == Some("mcp-test")));
+        assert!(tagged.iter().all(|s| s.layer == "Cmts.User" && !s.plots));
+
+        let after_add = k.board_shapes(None, None).await.expect("after add");
+        assert!(after_add.iter().any(|s| s.plots), "silk overlay survived");
+        assert!(
+            after_add
+                .iter()
+                .filter(|s| !s.plots && s.kind == "rect" && s.tag.is_none())
+                .count()
+                >= 2,
+            "untagged 4×5 frames survived tagging"
+        );
+
+        let ids = k.overlay_ids_for_tag("mcp-test").await.expect("tag ids");
+        let session = k.begin_commit().await.expect("clear tag");
+        match k.delete_ids(ids).await {
+            Ok(_) => {
+                k.end_commit(session, "kicad-mcp live clear mcp-test")
+                    .await
+                    .expect("end clear");
+            }
+            Err(e) => {
+                let _ = k.drop_commit(session).await;
+                panic!("clear tag failed: {e}");
+            }
+        }
+        let _ = k.refresh().await;
+        let leftover_tag = k
+            .board_shapes(None, Some("mcp-test"))
+            .await
+            .expect("cleared");
+        assert!(leftover_tag.is_empty(), "tag mcp-test must be gone");
+        let done = k.board_shapes(None, None).await.expect("final");
+        assert!(done.iter().any(|s| s.plots), "silk still there after clear");
+        assert!(
+            done.iter().filter(|s| !s.plots && s.kind == "rect").count() >= 2,
+            "4×5 frames still there after clear"
+        );
     }
 }

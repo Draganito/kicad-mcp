@@ -1,0 +1,1314 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [ 5 0 R 7 0 R 9 0 R ] /Count 3 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 6 0 R >>
+endobj
+6 0 obj
+<< /Length 7209 >>
+stream
+0.120 0.220 0.380 rg
+0.0 806.0 595.0 36.0 re
+f
+1.000 1.000 1.000 rg
+BT
+/F2 11 Tf
+1 0 0 1 48.0 819.0 Tm (LED panel  |  JLCPCB order guide) Tj
+ET
+0.000 0.000 0.000 rg
+BT
+/F2 20 Tf
+1 0 0 1 48.0 782.0 Tm (How to order this LED panel) Tj
+ET
+0.120 0.220 0.380 rg
+48.0 760.0 72.0 3.0 re
+f
+0.000 0.000 0.000 rg
+BT
+/F1 11 Tf
+1 0 0 1 48.0 744.0 Tm (Author: Dragan Bojovic) Tj
+ET
+BT
+/F1 11 Tf
+1 0 0 1 48.0 723.0 Tm (Generic instructions for JLCPCB. Screens change; pick the same meaning, not the same) Tj
+ET
+BT
+/F1 11 Tf
+1 0 0 1 48.0 708.0 Tm (pixel.) Tj
+ET
+0.980 0.940 0.860 rg
+48.0 645.0 499.0 42.0 re
+f
+0.750 0.450 0.080 rg
+48.0 645.0 4.0 42.0 re
+f
+0.350 0.200 0.040 rg
+BT
+/F2 9 Tf
+1 0 0 1 62.0 675.0 Tm (Three things people get wrong) Tj
+ET
+0.150 0.120 0.080 rg
+BT
+/F1 9 Tf
+1 0 0 1 62.0 663.0 Tm (Use LeadFree HASL \(not leaded\). Set inner copper to 1 oz \(not the 0.5 oz default\). Turn on Confirm) Tj
+ET
+BT
+/F1 9 Tf
+1 0 0 1 62.0 651.0 Tm (parts placement for the first batch. A rotated SK6812 will break the daisy chain.) Tj
+ET
+0.000 0.000 0.000 rg
+0.120 0.220 0.380 rg
+48.0 621.0 499.0 22.0 re
+f
+1.000 1.000 1.000 rg
+BT
+/F2 11 Tf
+1 0 0 1 56.0 627.0 Tm (01   Files to upload) Tj
+ET
+0.000 0.000 0.000 rg
+BT
+/F1 10 Tf
+1 0 0 1 48.0 599.0 Tm (Use the three files that sit next to the KiCad project file \(.kicad_pro\). Ignore any extra) Tj
+ET
+BT
+/F1 10 Tf
+1 0 0 1 48.0 586.0 Tm (gerbers/ folder.) Tj
+ET
+0.120 0.220 0.380 rg
+48.0 555.0 499.0 18.0 re
+f
+1.000 1.000 1.000 rg
+BT
+/F2 8 Tf
+1 0 0 1 53.0 560.0 Tm (Setting) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 560.0 Tm (Select this) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 319.0 560.0 Tm (Why) Tj
+ET
+0.000 0.000 0.000 rg
+0.940 0.960 0.980 rg
+48.0 539.0 499.0 16.0 re
+f
+0.000 0.000 0.000 rg
+BT
+/F2 8 Tf
+1 0 0 1 53.0 544.0 Tm (<name>_gerbers.zip) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 544.0 Tm (PCB / Gerber upload) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 544.0 Tm (Copper, mask, silk, drills. One zip only.) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 53.0 528.0 Tm (<name>_bom.csv) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 528.0 Tm (BOM) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 528.0 Tm (LCSC part numbers for assembly.) Tj
+ET
+0.940 0.960 0.980 rg
+48.0 507.0 499.0 16.0 re
+f
+0.000 0.000 0.000 rg
+BT
+/F2 8 Tf
+1 0 0 1 53.0 512.0 Tm (<name>_cpl.csv) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 512.0 Tm (CPL / centroid) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 512.0 Tm (Pick-and-place positions, top side.) Tj
+ET
+0.750 0.780 0.820 RG
+0.5 w 48.0 507.0 m 547.0 507.0 l S
+0.000 0.000 0.000 rg
+BT
+/F1 10 Tf
+1 0 0 1 48.0 495.0 Tm (Open Gerber Viewer after upload. You want a circular 4-layer board, parts on the top only, DFM) Tj
+ET
+BT
+/F1 10 Tf
+1 0 0 1 48.0 482.0 Tm (all green. Red DFM: stop and re-export before you pay.) Tj
+ET
+0.120 0.220 0.380 rg
+48.0 451.0 499.0 22.0 re
+f
+1.000 1.000 1.000 rg
+BT
+/F2 11 Tf
+1 0 0 1 56.0 457.0 Tm (02   Board type) Tj
+ET
+0.000 0.000 0.000 rg
+0.120 0.220 0.380 rg
+48.0 415.0 499.0 18.0 re
+f
+1.000 1.000 1.000 rg
+BT
+/F2 8 Tf
+1 0 0 1 53.0 420.0 Tm (Setting) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 420.0 Tm (Select this) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 319.0 420.0 Tm (Why) Tj
+ET
+0.000 0.000 0.000 rg
+0.940 0.960 0.980 rg
+48.0 389.0 499.0 26.0 re
+f
+0.000 0.000 0.000 rg
+BT
+/F2 8 Tf
+1 0 0 1 53.0 404.0 Tm (Base material) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 404.0 Tm (FR-4) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 404.0 Tm (Normal fibreglass. Aluminium / copper-core is a) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 394.0 Tm (different heatsink design.) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 53.0 378.0 Tm (Layers) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 378.0 Tm (4) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 378.0 Tm (F.Cu data+GND, In1.Cu 5V, In2.Cu GND, B.Cu GND. Not) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 368.0 Tm (2, not 6+.) Tj
+ET
+0.940 0.960 0.980 rg
+48.0 337.0 499.0 26.0 re
+f
+0.000 0.000 0.000 rg
+BT
+/F2 8 Tf
+1 0 0 1 53.0 352.0 Tm (PCB qty) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 352.0 Tm (5 \(or more\)) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 352.0 Tm (Five is the usual first run. More copies drop the) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 342.0 Tm (unit price.) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 53.0 326.0 Tm (Product type) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 326.0 Tm (Industrial / Consumer) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 326.0 Tm (Lighting panel. Medical / aerospace only adds) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 316.0 Tm (paperwork.) Tj
+ET
+0.940 0.960 0.980 rg
+48.0 285.0 499.0 26.0 re
+f
+0.000 0.000 0.000 rg
+BT
+/F2 8 Tf
+1 0 0 1 53.0 300.0 Tm (Different design) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 300.0 Tm (1) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 300.0 Tm (One Gerber set. Raise only if several designs are in) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 290.0 Tm (one zip.) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 53.0 274.0 Tm (Delivery format) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 274.0 Tm (Single PCB) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 274.0 Tm (Finished circles. Rails for SMT are added later, then) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 264.0 Tm (cut off.) Tj
+ET
+0.940 0.960 0.980 rg
+48.0 233.0 499.0 26.0 re
+f
+0.000 0.000 0.000 rg
+BT
+/F2 8 Tf
+1 0 0 1 53.0 248.0 Tm (PCB thickness) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 248.0 Tm (1.6 mm) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 248.0 Tm (Stiff enough for M3 holes. Thinner 4-layer stock) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 238.0 Tm (warps in reflow.) Tj
+ET
+0.750 0.780 0.820 RG
+0.5 w 48.0 233.0 m 547.0 233.0 l S
+0.000 0.000 0.000 rg
+0.120 0.220 0.380 rg
+48.0 207.0 499.0 22.0 re
+f
+1.000 1.000 1.000 rg
+BT
+/F2 11 Tf
+1 0 0 1 56.0 213.0 Tm (03   Look and laminate) Tj
+ET
+0.000 0.000 0.000 rg
+0.120 0.220 0.380 rg
+48.0 171.0 499.0 18.0 re
+f
+1.000 1.000 1.000 rg
+BT
+/F2 8 Tf
+1 0 0 1 53.0 176.0 Tm (Setting) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 176.0 Tm (Select this) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 319.0 176.0 Tm (Why) Tj
+ET
+0.000 0.000 0.000 rg
+0.940 0.960 0.980 rg
+48.0 145.0 499.0 26.0 re
+f
+0.000 0.000 0.000 rg
+BT
+/F2 8 Tf
+1 0 0 1 53.0 160.0 Tm (PCB colour) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 160.0 Tm (Green) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 160.0 Tm (Cheapest, best process control. Black is optional) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 150.0 Tm (cosmetics.) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 53.0 134.0 Tm (Silkscreen) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 134.0 Tm (White) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 134.0 Tm (Readable on green. 5V / GND / DATA are board labels) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 124.0 Tm (and must stay.) Tj
+ET
+0.940 0.960 0.980 rg
+48.0 93.0 499.0 26.0 re
+f
+0.000 0.000 0.000 rg
+0.980 0.930 0.880 rg
+48.0 93.0 499.0 26.0 re
+f
+0.000 0.000 0.000 rg
+BT
+/F2 8 Tf
+1 0 0 1 53.0 108.0 Tm (Material type) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 108.0 Tm (CHANGE: FR4-TG155) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 108.0 Tm (Lead-free reflow is hot. TG155 has more margin than) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 98.0 Tm (TG135.) Tj
+ET
+0.980 0.930 0.880 rg
+48.0 67.0 499.0 26.0 re
+f
+0.000 0.000 0.000 rg
+BT
+/F2 8 Tf
+1 0 0 1 53.0 82.0 Tm (Surface finish) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 82.0 Tm (CHANGE: LeadFree HASL) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 82.0 Tm (RoHS, matches high-temp paste. Leaded HASL is not) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 72.0 Tm (RoHS. ENIG is optional luxury.) Tj
+ET
+0.750 0.780 0.820 RG
+0.5 w 48.0 67.0 m 547.0 67.0 l S
+0.000 0.000 0.000 rg
+0.70 0.73 0.78 RG
+0.5 w 48 32 m 547 32 l S
+0.35 0.38 0.42 rg
+BT
+/F1 8 Tf
+1 0 0 1 48 20 Tm (Dragan Bojovic  |  open-source LED panel  |  jlcpcb.com) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 477 20 Tm (Page 1 / 3) Tj
+ET
+endstream
+endobj
+7 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 8 0 R >>
+endobj
+8 0 obj
+<< /Length 7071 >>
+stream
+0.120 0.220 0.380 rg
+0.0 806.0 595.0 36.0 re
+f
+1.000 1.000 1.000 rg
+BT
+/F2 11 Tf
+1 0 0 1 48.0 819.0 Tm (LED panel  |  JLCPCB order guide) Tj
+ET
+0.000 0.000 0.000 rg
+0.120 0.220 0.380 rg
+48.0 772.0 499.0 22.0 re
+f
+1.000 1.000 1.000 rg
+BT
+/F2 11 Tf
+1 0 0 1 56.0 778.0 Tm (04   Copper and vias) Tj
+ET
+0.000 0.000 0.000 rg
+0.120 0.220 0.380 rg
+48.0 736.0 499.0 18.0 re
+f
+1.000 1.000 1.000 rg
+BT
+/F2 8 Tf
+1 0 0 1 53.0 741.0 Tm (Setting) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 741.0 Tm (Select this) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 319.0 741.0 Tm (Why) Tj
+ET
+0.000 0.000 0.000 rg
+0.940 0.960 0.980 rg
+48.0 720.0 499.0 16.0 re
+f
+0.000 0.000 0.000 rg
+BT
+/F2 8 Tf
+1 0 0 1 53.0 725.0 Tm (Outer copper) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 725.0 Tm (1 oz) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 725.0 Tm (Enough on a full plane. 2 oz is extra cost.) Tj
+ET
+0.980 0.930 0.880 rg
+48.0 694.0 499.0 26.0 re
+f
+0.000 0.000 0.000 rg
+BT
+/F2 8 Tf
+1 0 0 1 53.0 709.0 Tm (Inner copper) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 709.0 Tm (CHANGE: 1 oz) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 709.0 Tm (5V lives on an inner plane \(~7 A\). Do not leave 0.5) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 699.0 Tm (oz.) Tj
+ET
+0.940 0.960 0.980 rg
+48.0 678.0 499.0 16.0 re
+f
+0.000 0.000 0.000 rg
+BT
+/F2 8 Tf
+1 0 0 1 53.0 683.0 Tm (Layer sequence) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 683.0 Tm (No) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 683.0 Tm (Standard 4-layer order already matches the design.) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 53.0 667.0 Tm (Specify stackup) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 667.0 Tm (No) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 667.0 Tm (No impedance control. SK6812 is not USB.) Tj
+ET
+0.940 0.960 0.980 rg
+48.0 636.0 499.0 26.0 re
+f
+0.000 0.000 0.000 rg
+BT
+/F2 8 Tf
+1 0 0 1 53.0 651.0 Tm (Via covering) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 651.0 Tm (Plugged) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 651.0 Tm (Vias sit next to capacitors. Mask keeps solder out of) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 641.0 Tm (the hole.) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 53.0 625.0 Tm (Via plating) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 625.0 Tm (Horizontal electroless Cu) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 625.0 Tm (Normal 4-layer plating. Leave as offered.) Tj
+ET
+0.940 0.960 0.980 rg
+48.0 594.0 499.0 26.0 re
+f
+0.000 0.000 0.000 rg
+BT
+/F2 8 Tf
+1 0 0 1 53.0 609.0 Tm (Min via hole) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 609.0 Tm (0.3 mm / 0.4-0.45 mm) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 609.0 Tm (Matches the design. Smaller vias cost more and are) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 599.0 Tm (unused.) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 53.0 583.0 Tm (Outline tolerance) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 583.0 Tm (+/- 0.2 mm Regular) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 583.0 Tm (A 157 mm circle does not need precision outline.) Tj
+ET
+0.750 0.780 0.820 RG
+0.5 w 48.0 578.0 m 547.0 578.0 l S
+0.000 0.000 0.000 rg
+0.120 0.220 0.380 rg
+48.0 552.0 499.0 22.0 re
+f
+1.000 1.000 1.000 rg
+BT
+/F2 11 Tf
+1 0 0 1 56.0 558.0 Tm (05   Marks and tests) Tj
+ET
+0.000 0.000 0.000 rg
+0.120 0.220 0.380 rg
+48.0 516.0 499.0 18.0 re
+f
+1.000 1.000 1.000 rg
+BT
+/F2 8 Tf
+1 0 0 1 53.0 521.0 Tm (Setting) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 521.0 Tm (Select this) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 319.0 521.0 Tm (Why) Tj
+ET
+0.000 0.000 0.000 rg
+0.940 0.960 0.980 rg
+48.0 490.0 499.0 26.0 re
+f
+0.000 0.000 0.000 rg
+BT
+/F2 8 Tf
+1 0 0 1 53.0 505.0 Tm (Confirm production file) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 505.0 Tm (Yes \(first order\)) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 505.0 Tm (A quick human check of the Gerbers. Cheap insurance) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 495.0 Tm (once.) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 53.0 479.0 Tm (Mark on PCB) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 479.0 Tm (Remove Mark) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 479.0 Tm (Hides the order number. Cleaner photos.) Tj
+ET
+0.940 0.960 0.980 rg
+48.0 458.0 499.0 16.0 re
+f
+0.000 0.000 0.000 rg
+BT
+/F2 8 Tf
+1 0 0 1 53.0 463.0 Tm (Electrical test) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 463.0 Tm (Flying probe fully test) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 463.0 Tm (Normal net test on a 4-layer board.) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 53.0 447.0 Tm (Gold fingers, slots, UL) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 447.0 Tm (All No) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 447.0 Tm (Castellated, press-fit, edge plate, backdrill,) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 437.0 Tm (humidity card: unused.) Tj
+ET
+0.750 0.780 0.820 RG
+0.5 w 48.0 432.0 m 547.0 432.0 l S
+0.000 0.000 0.000 rg
+0.120 0.220 0.380 rg
+48.0 406.0 499.0 22.0 re
+f
+1.000 1.000 1.000 rg
+BT
+/F2 11 Tf
+1 0 0 1 56.0 412.0 Tm (06   Assembly) Tj
+ET
+0.000 0.000 0.000 rg
+BT
+/F1 10 Tf
+1 0 0 1 48.0 384.0 Tm (Switch PCB Assembly On. Turn it off only if you want bare boards and will skip this section.) Tj
+ET
+0.120 0.220 0.380 rg
+48.0 353.0 499.0 18.0 re
+f
+1.000 1.000 1.000 rg
+BT
+/F2 8 Tf
+1 0 0 1 53.0 358.0 Tm (Setting) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 358.0 Tm (Select this) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 319.0 358.0 Tm (Why) Tj
+ET
+0.000 0.000 0.000 rg
+0.940 0.960 0.980 rg
+48.0 337.0 499.0 16.0 re
+f
+0.000 0.000 0.000 rg
+BT
+/F2 8 Tf
+1 0 0 1 53.0 342.0 Tm (Assemble) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 342.0 Tm (Top side only) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 342.0 Tm (Every SMD part is on F.Cu. The back is a GND plane.) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 53.0 326.0 Tm (PCBA type) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 326.0 Tm (Standard) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 326.0 Tm (Economic rejects more parts. Power caps are polar.) Tj
+ET
+0.940 0.960 0.980 rg
+48.0 305.0 499.0 16.0 re
+f
+0.000 0.000 0.000 rg
+BT
+/F2 8 Tf
+1 0 0 1 53.0 310.0 Tm (PCBA qty) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 310.0 Tm (Same as PCB qty) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 310.0 Tm (Usually 5.) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 53.0 294.0 Tm (Edge rails / fiducials) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 294.0 Tm (Added by JLCPCB) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 294.0 Tm (A round board cannot run SMT without rails. Size bump) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 284.0 Tm (is temporary.) Tj
+ET
+0.940 0.960 0.980 rg
+48.0 253.0 499.0 26.0 re
+f
+0.000 0.000 0.000 rg
+0.980 0.930 0.880 rg
+48.0 253.0 499.0 26.0 re
+f
+0.000 0.000 0.000 rg
+BT
+/F2 8 Tf
+1 0 0 1 53.0 268.0 Tm (Confirm parts placement) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 268.0 Tm (CHANGE: Yes \(first batch\)) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 268.0 Tm (One rotated SK6812 kills a daisy. Check the photo,) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 258.0 Tm (then they run the rest.) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 53.0 242.0 Tm (Stencil / fixture storage) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 242.0 Tm (No) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 242.0 Tm (Not a weekly repeat order.) Tj
+ET
+0.940 0.960 0.980 rg
+48.0 211.0 499.0 26.0 re
+f
+0.000 0.000 0.000 rg
+BT
+/F2 8 Tf
+1 0 0 1 53.0 226.0 Tm (Parts selection) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 226.0 Tm (By customer \(self-service\)) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 226.0 Tm (BOM already has LCSC codes. Use Manual Match only if) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 216.0 Tm (a line will not map.) Tj
+ET
+0.750 0.780 0.820 RG
+0.5 w 48.0 211.0 m 547.0 211.0 l S
+0.000 0.000 0.000 rg
+0.70 0.73 0.78 RG
+0.5 w 48 32 m 547 32 l S
+0.35 0.38 0.42 rg
+BT
+/F1 8 Tf
+1 0 0 1 48 20 Tm (Dragan Bojovic  |  open-source LED panel  |  jlcpcb.com) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 477 20 Tm (Page 2 / 3) Tj
+ET
+endstream
+endobj
+9 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 10 0 R >>
+endobj
+10 0 obj
+<< /Length 7068 >>
+stream
+0.120 0.220 0.380 rg
+0.0 806.0 595.0 36.0 re
+f
+1.000 1.000 1.000 rg
+BT
+/F2 11 Tf
+1 0 0 1 48.0 819.0 Tm (LED panel  |  JLCPCB order guide) Tj
+ET
+0.000 0.000 0.000 rg
+0.120 0.220 0.380 rg
+48.0 772.0 499.0 22.0 re
+f
+1.000 1.000 1.000 rg
+BT
+/F2 11 Tf
+1 0 0 1 56.0 778.0 Tm (07   Assembly extras) Tj
+ET
+0.000 0.000 0.000 rg
+0.120 0.220 0.380 rg
+48.0 736.0 499.0 18.0 re
+f
+1.000 1.000 1.000 rg
+BT
+/F2 8 Tf
+1 0 0 1 53.0 741.0 Tm (Setting) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 741.0 Tm (Select this) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 319.0 741.0 Tm (Why) Tj
+ET
+0.000 0.000 0.000 rg
+0.940 0.960 0.980 rg
+48.0 710.0 499.0 26.0 re
+f
+0.000 0.000 0.000 rg
+BT
+/F2 8 Tf
+1 0 0 1 53.0 725.0 Tm (Bake / photo / clean /) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 53.0 715.0 Tm (coat) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 725.0 Tm (No) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 725.0 Tm (Indoor panel, no BGA moisture parts, no conformal) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 715.0 Tm (coat.) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 53.0 699.0 Tm (Special stencil) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 699.0 Tm (No) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 699.0 Tm (Standard stencil covers 0603 and LED pads.) Tj
+ET
+0.940 0.960 0.980 rg
+48.0 668.0 499.0 26.0 re
+f
+0.000 0.000 0.000 rg
+BT
+/F2 8 Tf
+1 0 0 1 53.0 683.0 Tm (Depanel + remove rails) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 683.0 Tm (Yes) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 683.0 Tm (They added rails for SMT. This returns the circular) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 673.0 Tm (board.) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 53.0 657.0 Tm (Assembly flying probe) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 657.0 Tm (No) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 657.0 Tm (Bare PCB already tested. No in-house function jig.) Tj
+ET
+0.940 0.960 0.980 rg
+48.0 636.0 499.0 16.0 re
+f
+0.000 0.000 0.000 rg
+BT
+/F2 8 Tf
+1 0 0 1 53.0 641.0 Tm (Function test) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 641.0 Tm (No) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 641.0 Tm (You power it: 5V, GND, DATA.) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 53.0 625.0 Tm (Packaging) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 625.0 Tm (Antistatic bubble film) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 625.0 Tm (Enough for assembled boards.) Tj
+ET
+0.940 0.960 0.980 rg
+48.0 604.0 499.0 16.0 re
+f
+0.000 0.000 0.000 rg
+BT
+/F2 8 Tf
+1 0 0 1 53.0 609.0 Tm (Solder paste) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 609.0 Tm (High temp.) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 609.0 Tm (Lead-free process. Required with LeadFree HASL.) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 53.0 593.0 Tm (Nitrogen reflow) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 593.0 Tm (No) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 593.0 Tm (Cosmetic only.) Tj
+ET
+0.940 0.960 0.980 rg
+48.0 562.0 499.0 26.0 re
+f
+0.000 0.000 0.000 rg
+BT
+/F2 8 Tf
+1 0 0 1 53.0 577.0 Tm (Extra stencil product) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 577.0 Tm (Off) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 577.0 Tm (That is for hand assembly at home. They already have) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 567.0 Tm (one.) Tj
+ET
+0.750 0.780 0.820 RG
+0.5 w 48.0 562.0 m 547.0 562.0 l S
+0.000 0.000 0.000 rg
+0.120 0.220 0.380 rg
+48.0 536.0 499.0 22.0 re
+f
+1.000 1.000 1.000 rg
+BT
+/F2 11 Tf
+1 0 0 1 56.0 542.0 Tm (08   Parts cart) Tj
+ET
+0.000 0.000 0.000 rg
+BT
+/F1 10 Tf
+1 0 0 1 48.0 514.0 Tm (Every BOM line must be In Stock. Typical mapping:) Tj
+ET
+0.120 0.220 0.380 rg
+48.0 483.0 499.0 18.0 re
+f
+1.000 1.000 1.000 rg
+BT
+/F2 8 Tf
+1 0 0 1 53.0 488.0 Tm (Setting) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 488.0 Tm (Select this) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 319.0 488.0 Tm (Why) Tj
+ET
+0.000 0.000 0.000 rg
+0.940 0.960 0.980 rg
+48.0 467.0 499.0 16.0 re
+f
+0.000 0.000 0.000 rg
+BT
+/F2 8 Tf
+1 0 0 1 53.0 472.0 Tm (C5348912) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 472.0 Tm (SK6812 / SKC6812 x109) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 472.0 Tm (Do not swap to a different LED footprint.) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 53.0 456.0 Tm (C14663) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 456.0 Tm (100 nF 0603 x109) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 456.0 Tm (Local decoupling.) Tj
+ET
+0.940 0.960 0.980 rg
+48.0 435.0 499.0 16.0 re
+f
+0.000 0.000 0.000 rg
+BT
+/F2 8 Tf
+1 0 0 1 53.0 440.0 Tm (C79111) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 440.0 Tm (220 uF 6.3 V x2) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 440.0 Tm (Polar polymer. Plus toward 5V.) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 53.0 424.0 Tm (C7484) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 424.0 Tm (SN74AHCT1G125 x1) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 424.0 Tm (5 V buffer, OE tied to GND.) Tj
+ET
+0.940 0.960 0.980 rg
+48.0 403.0 499.0 16.0 re
+f
+0.000 0.000 0.000 rg
+BT
+/F2 8 Tf
+1 0 0 1 53.0 408.0 Tm (C502527) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 408.0 Tm (SD05 TVS x1) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 408.0 Tm (On DATA_IN.) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 53.0 392.0 Tm (C23138) Tj
+ET
+BT
+/F2 8 Tf
+1 0 0 1 171.0 392.0 Tm (330 ohm 0603 x1) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 319.0 392.0 Tm (Series on data into the first LED.) Tj
+ET
+0.750 0.780 0.820 RG
+0.5 w 48.0 387.0 m 547.0 387.0 l S
+0.000 0.000 0.000 rg
+BT
+/F1 10 Tf
+1 0 0 1 48.0 375.0 Tm (Wire pads and M3 holes are not assembled. You solder wires yourself. If a part is out of stock,) Tj
+ET
+BT
+/F1 10 Tf
+1 0 0 1 48.0 362.0 Tm (an alternate is OK only when package and voltage match.) Tj
+ET
+0.120 0.220 0.380 rg
+48.0 331.0 499.0 22.0 re
+f
+1.000 1.000 1.000 rg
+BT
+/F2 11 Tf
+1 0 0 1 56.0 337.0 Tm (09   Before you pay) Tj
+ET
+0.000 0.000 0.000 rg
+0.120 0.220 0.380 RG
+1 w
+49.0 307.0 8.0 8.0 re
+S
+0.000 0.000 0.000 rg
+BT
+/F1 10 Tf
+1 0 0 1 64.0 309.0 Tm (4 layers, 1.6 mm, FR-4 TG155, green, white silk) Tj
+ET
+0.120 0.220 0.380 RG
+1 w
+49.0 294.0 8.0 8.0 re
+S
+0.000 0.000 0.000 rg
+BT
+/F1 10 Tf
+1 0 0 1 64.0 296.0 Tm (LeadFree HASL, not HASL \(with lead\)) Tj
+ET
+0.120 0.220 0.380 RG
+1 w
+49.0 281.0 8.0 8.0 re
+S
+0.000 0.000 0.000 rg
+BT
+/F1 10 Tf
+1 0 0 1 64.0 283.0 Tm (Outer 1 oz and inner 1 oz, not 0.5 oz inner) Tj
+ET
+0.120 0.220 0.380 RG
+1 w
+49.0 268.0 8.0 8.0 re
+S
+0.000 0.000 0.000 rg
+BT
+/F1 10 Tf
+1 0 0 1 64.0 270.0 Tm (Vias plugged, min drill 0.3 mm) Tj
+ET
+0.120 0.220 0.380 RG
+1 w
+49.0 255.0 8.0 8.0 re
+S
+0.000 0.000 0.000 rg
+BT
+/F1 10 Tf
+1 0 0 1 64.0 257.0 Tm (Assembly on, top side, Standard, rails by JLCPCB, depanel Yes) Tj
+ET
+0.120 0.220 0.380 RG
+1 w
+49.0 242.0 8.0 8.0 re
+S
+0.000 0.000 0.000 rg
+BT
+/F1 10 Tf
+1 0 0 1 64.0 244.0 Tm (Confirm parts placement Yes \(first order\)) Tj
+ET
+0.120 0.220 0.380 RG
+1 w
+49.0 229.0 8.0 8.0 re
+S
+0.000 0.000 0.000 rg
+BT
+/F1 10 Tf
+1 0 0 1 64.0 231.0 Tm (High-temp paste, no extra stencil, no coating) Tj
+ET
+0.120 0.220 0.380 RG
+1 w
+49.0 216.0 8.0 8.0 re
+S
+0.000 0.000 0.000 rg
+BT
+/F1 10 Tf
+1 0 0 1 64.0 218.0 Tm (Latest <name>_gerbers.zip + _bom.csv + _cpl.csv, DFM green) Tj
+ET
+0.980 0.940 0.860 rg
+48.0 159.0 499.0 42.0 re
+f
+0.750 0.450 0.080 rg
+48.0 159.0 4.0 42.0 re
+f
+0.350 0.200 0.040 rg
+BT
+/F2 9 Tf
+1 0 0 1 62.0 189.0 Tm (When it arrives) Tj
+ET
+0.150 0.120 0.080 rg
+BT
+/F1 9 Tf
+1 0 0 1 62.0 177.0 Tm (One fat 5 V cable to the 5V and GND holes. Data to the DATA hole. Do not run LED current through an) Tj
+ET
+BT
+/F1 9 Tf
+1 0 0 1 62.0 165.0 Tm (ESP32 DevKit. Tap 5V/GND at the panel.) Tj
+ET
+0.000 0.000 0.000 rg
+0.70 0.73 0.78 RG
+0.5 w 48 32 m 547 32 l S
+0.35 0.38 0.42 rg
+BT
+/F1 8 Tf
+1 0 0 1 48 20 Tm (Dragan Bojovic  |  open-source LED panel  |  jlcpcb.com) Tj
+ET
+BT
+/F1 8 Tf
+1 0 0 1 477 20 Tm (Page 3 / 3) Tj
+ET
+endstream
+endobj
+11 0 obj
+<< /Title (How to order this LED panel) /Author (Dragan Bojovic) /Creator (kicad-mcp) >>
+endobj
+xref
+0 12
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000135 00000 n 
+0000000205 00000 n 
+0000000280 00000 n 
+0000000416 00000 n 
+0000007677 00000 n 
+0000007813 00000 n 
+0000014936 00000 n 
+0000015073 00000 n 
+0000022194 00000 n 
+trailer << /Size 12 /Root 1 0 R /Info 11 0 R >>
+startxref
+22299
+%%EOF

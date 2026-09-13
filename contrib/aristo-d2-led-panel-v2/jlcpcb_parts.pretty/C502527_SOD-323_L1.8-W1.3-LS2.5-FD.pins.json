@@ -1,0 +1,16 @@
+{
+  "lcsc_code": "C502527",
+  "name": "SD05_C502527",
+  "template": "C502527_SOD-323_L1.8-W1.3-LS2.5-FD",
+  "source": "easyeda",
+  "pins": [
+    {
+      "number": "2",
+      "pin_name": "K"
+    },
+    {
+      "number": "1",
+      "pin_name": "A"
+    }
+  ]
+}

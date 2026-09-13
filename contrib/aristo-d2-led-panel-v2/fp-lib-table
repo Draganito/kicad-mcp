@@ -1,0 +1,4 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "jlcpcb_parts")(type "KiCad")(uri "${KIPRJMOD}/jlcpcb_parts.pretty")(options "")(descr "LCSC/EasyEDA imports via kicad-mcp"))
+)

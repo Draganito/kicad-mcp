@@ -891,6 +891,7 @@ mod tests {
             height_mm: 0.9,
             drill_mm: None,
             drill_h_mm: None,
+            mask: true,
         };
         vec![pad("1", -0.75), pad("2", 0.75)]
     }
@@ -1080,6 +1081,7 @@ mod tests {
             height_mm: 0.9,
             drill_mm: None,
             drill_h_mm: None,
+            mask: true,
         };
         let asym = vec![pad("1", -1.5), pad("2", 0.5)];
         let expected = expected_geoms(&asym, 100.0, 80.0, 0.0);

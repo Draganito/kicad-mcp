@@ -1,7 +1,9 @@
 //! Board silkscreen text via typed `CreateItems` (same path as kicad-python `BoardText`).
 //!
-//! Only F.Silkscreen / B.Silkscreen. Copper and Fab are refused — connector
-//! labels must not become nets, and footprint Value is not this tool.
+//! `add_text` is F.Silkscreen / B.Silkscreen only. Overlay table cells use
+//! `text_on_layer` on the same graphic layer as the grid. Copper and Fab
+//! are refused — connector labels must not become nets, and footprint
+//! Value is not this tool.
 
 use prost::Message;
 use prost_types::Any;
@@ -65,24 +67,49 @@ pub fn text_any(
     size_mm: Option<f64>,
     rotation_deg: Option<f64>,
 ) -> Result<Any, String> {
+    let silk = parse_silk_layer(layer)?;
+    text_on_layer(
+        text,
+        x_mm,
+        y_mm,
+        silk.id,
+        silk.mirrored,
+        size_mm,
+        rotation_deg,
+        MIN_SIZE_MM,
+    )
+}
+
+/// Board text on an overlay layer (F/B.Silkscreen or a user layer).
+/// Silk plots: min 0.8 mm. User layers (check-only) min 0.5 mm.
+pub fn text_on_layer(
+    text: &str,
+    x_mm: f64,
+    y_mm: f64,
+    layer_id: i32,
+    mirrored: bool,
+    size_mm: Option<f64>,
+    rotation_deg: Option<f64>,
+    min_size_mm: f64,
+) -> Result<Any, String> {
     let body = sanitize_text(text)?;
     if !x_mm.is_finite() || !y_mm.is_finite() {
         return Err("x_mm and y_mm must be finite millimetres".into());
     }
     let size = size_mm.unwrap_or(DEFAULT_SIZE_MM);
-    if !size.is_finite() || size < MIN_SIZE_MM || size > MAX_SIZE_MM {
+    if !size.is_finite() || size < min_size_mm || size > MAX_SIZE_MM {
         return Err(format!(
-            "size_mm must be {MIN_SIZE_MM}–{MAX_SIZE_MM} (JLCPCB silk floor {MIN_SIZE_MM} mm, got {size})"
+            "size_mm must be {min_size_mm}–{MAX_SIZE_MM} mm (got {size})"
         ));
     }
     let rot = rotation_deg.unwrap_or(0.0);
     if !rot.is_finite() {
         return Err("rotation_deg must be finite".into());
     }
-    let silk = parse_silk_layer(layer)?;
     let size_nm = mm_to_nm(size);
     let stroke_nm = mm_to_nm(size * STROKE_RATIO);
     let proto = BoardText {
+        id: None,
         text: Some(Text {
             position: Some(Vector2 {
                 x_nm: mm_to_nm(x_mm),
@@ -97,7 +124,7 @@ pub fn text_any(
                     value_nm: stroke_nm,
                 }),
                 visible: true,
-                mirrored: silk.mirrored,
+                mirrored,
                 size: Some(Vector2 {
                     x_nm: size_nm,
                     y_nm: size_nm,
@@ -107,7 +134,7 @@ pub fn text_any(
             text: body,
             ..Default::default()
         }),
-        layer: silk.id,
+        layer: layer_id,
         knockout: false,
         locked: LS_UNLOCKED,
     };
@@ -115,6 +142,58 @@ pub fn text_any(
         type_url: TYPE_BOARD_TEXT.into(),
         value: proto.encode_to_vec(),
     })
+}
+
+pub fn text_id_from_any(any: &Any) -> Option<String> {
+    if !any.type_url.ends_with("BoardText") {
+        return None;
+    }
+    BoardText::decode(any.value.as_slice())
+        .ok()?
+        .id
+        .map(|k| k.value)
+        .filter(|s| !s.is_empty())
+}
+
+pub fn text_xy_from_any(any: &Any) -> Option<(f64, f64)> {
+    if !any.type_url.ends_with("BoardText") {
+        return None;
+    }
+    let p = BoardText::decode(any.value.as_slice())
+        .ok()?
+        .text?
+        .position?;
+    Some((p.x_nm as f64 / 1_000_000.0, p.y_nm as f64 / 1_000_000.0))
+}
+
+pub fn text_body_from_any(any: &Any) -> Option<String> {
+    if !any.type_url.ends_with("BoardText") {
+        return None;
+    }
+    let body = BoardText::decode(any.value.as_slice()).ok()?.text?.text;
+    (!body.is_empty()).then_some(body)
+}
+
+/// Centre, height (mm) and body — for silk-to-pad AABB of overlay cell text.
+pub fn text_metrics_from_any(any: &Any) -> Option<(f64, f64, f64, String)> {
+    if !any.type_url.ends_with("BoardText") {
+        return None;
+    }
+    let p = BoardText::decode(any.value.as_slice()).ok()?;
+    let text = p.text?;
+    let pos = text.position?;
+    let size = text.attributes.as_ref()?.size.as_ref()?;
+    let body = text.text;
+    if body.is_empty() {
+        return None;
+    }
+    let h = (size.y_nm as f64 / 1_000_000.0).max(size.x_nm as f64 / 1_000_000.0);
+    Some((
+        pos.x_nm as f64 / 1_000_000.0,
+        pos.y_nm as f64 / 1_000_000.0,
+        h,
+        body,
+    ))
 }
 
 fn sanitize_text(text: &str) -> Result<String, String> {
@@ -196,7 +275,15 @@ struct Text {
 }
 
 #[derive(Clone, PartialEq, Message)]
+struct Kiid {
+    #[prost(string, tag = "1")]
+    value: String,
+}
+
+#[derive(Clone, PartialEq, Message)]
 struct BoardText {
+    #[prost(message, optional, tag = "1")]
+    id: Option<Kiid>,
     #[prost(message, optional, tag = "2")]
     text: Option<Text>,
     #[prost(int32, tag = "3")]
@@ -277,5 +364,22 @@ mod tests {
         assert!(text_any("5V", 0.0, 0.0, Some("F.Cu"), None, None)
             .unwrap_err()
             .contains("silkscreen"));
+    }
+
+    #[test]
+    fn overlay_user_layer_allows_half_mm() {
+        let any = text_on_layer("A", 1.0, 2.0, 44, false, Some(0.5), None, 0.5).unwrap();
+        let proto = BoardText::decode(any.value.as_slice()).unwrap();
+        assert_eq!(proto.layer, 44);
+        assert_eq!(
+            proto.text.unwrap().attributes.unwrap().size.unwrap().x_nm,
+            500_000
+        );
+        assert!(text_id_from_any(&any).is_none());
+        assert!(
+            text_on_layer("A", 0.0, 0.0, 44, false, Some(0.4), None, 0.5)
+                .unwrap_err()
+                .contains("0.5")
+        );
     }
 }

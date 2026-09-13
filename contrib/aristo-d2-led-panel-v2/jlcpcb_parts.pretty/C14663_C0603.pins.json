@@ -1,0 +1,16 @@
+{
+  "lcsc_code": "C14663",
+  "name": "CC0603KRX7R9BB104",
+  "template": "C14663_C0603",
+  "source": "easyeda",
+  "pins": [
+    {
+      "number": "2",
+      "pin_name": "2"
+    },
+    {
+      "number": "1",
+      "pin_name": "1"
+    }
+  ]
+}

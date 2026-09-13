@@ -1,0 +1,16 @@
+{
+  "lcsc_code": "C7472975",
+  "name": "HGC1206R5476M160NSPJ",
+  "template": "C7472975_C1206",
+  "source": "easyeda",
+  "pins": [
+    {
+      "number": "2",
+      "pin_name": "2"
+    },
+    {
+      "number": "1",
+      "pin_name": "1"
+    }
+  ]
+}

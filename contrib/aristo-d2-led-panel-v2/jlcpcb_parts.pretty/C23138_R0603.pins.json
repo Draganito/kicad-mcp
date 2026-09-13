@@ -1,0 +1,16 @@
+{
+  "lcsc_code": "C23138",
+  "name": "0603WAF3300T5E",
+  "template": "C23138_R0603",
+  "source": "easyeda",
+  "pins": [
+    {
+      "number": "2",
+      "pin_name": "2"
+    },
+    {
+      "number": "1",
+      "pin_name": "1"
+    }
+  ]
+}

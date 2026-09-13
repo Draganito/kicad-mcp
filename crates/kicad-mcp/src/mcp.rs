@@ -71,14 +71,15 @@ impl KicadMcp {
     }
 
     #[tool(
-        description = "Board overlay outlines (unfilled graphics) on F/B.Silkscreen and Cmts/Dwgs/Eco.User. Never Edge.Cuts. Optional layer filter. polygon_points is the outline vertex count (closing duplicate omitted), not the number of polygons in the set. Use this to verify a cover/mask overlay against the LEDs instead of guessing from a render."
+        description = "Board overlay outlines (unfilled graphics) on F/B.Silkscreen and Cmts/Dwgs/Eco.User. Never Edge.Cuts. Optional layer and tag filters. tag is the overlay group (without kicad-mcp: prefix). polygon_points is the outline vertex count (closing duplicate omitted), not the number of polygons in the set. kind text is grouped overlay BoardText (table cells) in reading order on that layer; untagged add_text 5V/GND labels are omitted. Use this to verify a cover/mask overlay against the LEDs instead of guessing from a render. Turn on User.Comments in KiCad to see Cmts.User."
     )]
     async fn get_shapes(
         &self,
         Parameters(args): Parameters<GetShapesArgs>,
     ) -> Result<CallToolResult, McpError> {
         with_kicad(self, move |k| async move {
-            k.board_shapes(args.layer.as_deref()).await
+            k.board_shapes(args.layer.as_deref(), args.tag.as_deref())
+                .await
         })
         .await
     }
@@ -114,11 +115,7 @@ impl KicadMcp {
         Parameters(args): Parameters<GetRoutingSceneArgs>,
     ) -> Result<CallToolResult, McpError> {
         with_kicad(self, move |k| async move {
-            let want = args
-                .net
-                .as_deref()
-                .map(str::trim)
-                .filter(|s| !s.is_empty());
+            let want = args.net.as_deref().map(str::trim).filter(|s| !s.is_empty());
             let mut tracks = k.tracks().await?;
             let mut vias = k.vias().await?;
             if let Some(net) = want {
@@ -225,8 +222,10 @@ impl KicadMcp {
         with_kicad(self, move |k| async move {
             let pads = crate::pads::board_pads(&k, None, None).await?;
             // Best-effort EasyEDA pin names: footprint value = template name.
-            let mut names: std::collections::HashMap<String, std::collections::HashMap<String, String>> =
-                std::collections::HashMap::new();
+            let mut names: std::collections::HashMap<
+                String,
+                std::collections::HashMap<String, String>,
+            > = std::collections::HashMap::new();
             if let (Ok(fps), Ok(dir)) = (k.footprints().await, k.project_dir().await) {
                 let pretty = crate::kicad::jlc_pretty_dir(&dir);
                 let sym = crate::kicad::jlc_sym_path(&dir);
@@ -237,8 +236,10 @@ impl KicadMcp {
                         template_of.insert(r.to_string(), v.to_string());
                     }
                 }
-                let mut by_template: std::collections::HashMap<String, std::collections::HashMap<String, String>> =
-                    std::collections::HashMap::new();
+                let mut by_template: std::collections::HashMap<
+                    String,
+                    std::collections::HashMap<String, String>,
+                > = std::collections::HashMap::new();
                 for template in template_of.values() {
                     if by_template.contains_key(template) {
                         continue;
@@ -265,10 +266,7 @@ impl KicadMcp {
                     reference: p.reference.clone(),
                     pin: p.pin.clone(),
                     net: p.net.clone(),
-                    pin_name: names
-                        .get(&p.reference)
-                        .and_then(|m| m.get(&p.pin))
-                        .cloned(),
+                    pin_name: names.get(&p.reference).and_then(|m| m.get(&p.pin)).cloned(),
                     x_mm: p.x_mm,
                     y_mm: p.y_mm,
                     kind: p.kind.clone(),
@@ -382,7 +380,7 @@ impl KicadMcp {
     }
 
     #[tool(
-        description = "Generate an NPTH mounting hole template with any hole diameter (mm) and write it into jlcpcb_parts.pretty. Returns the template name for place_footprint (3.2 keeps the name MountingHole_M3_NPTH, e.g. 4.5 becomes MountingHole_4.5_NPTH). Includes a 7.5 mm copper keepout on M3 (hole + 4.3 mm) so a typical screw head and tightening pressure sit on laminate, not on a pour. Courtyard matches the keepout. Regenerating an existing size overwrites the file."
+        description = "Generate an NPTH mounting hole template with any hole diameter (mm) and write it into jlcpcb_parts.pretty. Returns the template name for place_footprint (3.2 keeps the name MountingHole_M3_NPTH, e.g. 4.5 becomes MountingHole_4.5_NPTH). Includes a 7.5 mm copper keepout on M3 (hole + 4.3 mm) so a typical screw head sits on laminate, not on a pour. Soldermask stays closed over that keepout (no HASL ring). Courtyard matches the keepout. Regenerating an existing size overwrites the file."
     )]
     async fn make_mounting_hole(
         &self,
@@ -612,7 +610,8 @@ impl KicadMcp {
             }
             ids.extend(k.zone_ids().await?);
             ids.extend(k.board_text_ids().await?);
-            ids.extend(k.managed_graphic_ids(None).await?);
+            ids.extend(k.managed_graphic_ids(None, None).await?);
+            ids.extend(k.overlay_group_ids().await?);
             if ids.is_empty() {
                 return Ok(serde_json::json!({ "ok": true, "deleted": 0 }));
             }
@@ -743,7 +742,7 @@ impl KicadMcp {
     }
 
     #[tool(
-        description = "Draw one unfilled outline (rect / circle / polygon) so you can overlay a mechanical cover or mask on the LEDs. Default F.Silkscreen (visible on the parts; plots to gerbers — clear_shapes before export unless it belongs on the PCB). Prefer Cmts.User for a check-only overlay that is never manufactured. Never Edge.Cuts, never copper, never filled. Rect: origin_x_mm/origin_y_mm (bottom-left) or center_x_mm/center_y_mm plus width_mm/height_mm. Circle: x_mm/y_mm plus radius_mm or diameter_mm. Polygon: points [{x_mm,y_mm}, …] (closed). stroke_mm default 0.15 (silk floor 0.15). replace=true deletes existing overlay graphics on that layer first. Ctrl+Z undoes."
+        description = "Draw one unfilled outline (rect / circle / polygon / line / table) so you can overlay a mechanical cover or a datasheet on the board. Default Cmts.User (check-only, does not plot — turn on User.Comments in KiCad or it is invisible). F.Silkscreen / B.Silkscreen plot to gerbers — use B.Silkscreen for a printed datasheet, clear_shapes before export unless it belongs on the PCB. Plotting silk is gapped (not refused) where the stroke would sit on a same-side copper pad or a hole (JLCPCB 0.15 mm); cell text on a pad is omitted; refused only if nothing remains. Cmts.User is not checked. kind rect + reference (e.g. \"U1\") draws the package body (JLCPCB L/W or EIA size at the footprint origin) then gaps the pads — omit origin/width. Never Edge.Cuts, never copper, never filled. Rect: origin_x_mm/origin_y_mm (bottom-left) or center_x_mm/center_y_mm plus width_mm/height_mm. Circle: x_mm/y_mm plus radius_mm or diameter_mm. Polygon: points [{x_mm,y_mm}, …] (closed). Line: a_x_mm/a_y_mm + b_x_mm/b_y_mm (aliases hline/vline must be axis-aligned). Table: rows/cols plus cell_width_mm/cell_height_mm (or overall width/height) — grid of lines, one undo. cells is top-row-first as you read the finished layer (on B.Silkscreen that is the physical back — do not reverse the matrix). Empty string skips; needs tag. Origin/centre stay KiCad millimetres. stroke_mm is the inner grid (default 0.15); border_stroke_mm the outer rect. size_mm is cell text height (default 1.0; must be smaller than the cell). tag (e.g. \"4x5\") stores a KiCad group so clear_shapes can delete that overlay without wiping a silk logo. replace=true deletes that tag if set, otherwise existing overlay graphics on that layer. Ctrl+Z undoes."
     )]
     async fn add_shape(
         &self,
@@ -760,7 +759,7 @@ impl KicadMcp {
     }
 
     #[tool(
-        description = "Draw many unfilled cover/mask outlines in one undo (max 150). Each item is the same as add_shape: {kind, rect/circle/polygon fields, layer?, stroke_mm?}. replace=true deletes existing overlay graphics on every layer used in this batch (never Edge.Cuts)."
+        description = "Draw many unfilled cover/mask/datasheet outlines in one undo (max 150 items after table/line expansion and silk-to-pad gaps, including cell text). Each item is the same as add_shape: {kind, rect/circle/polygon/line/table fields, layer?, stroke_mm?, border_stroke_mm?, cells?, size_mm?, tag?, reference?}. Plotting silk (F/B.Silkscreen) is gapped at same-side pads/holes; Cmts.User is not checked. replace=true with tag(s) replaces those overlay groups only; without tags it deletes overlay graphics on every layer used in this batch (never Edge.Cuts)."
     )]
     async fn add_shapes(
         &self,
@@ -786,7 +785,7 @@ impl KicadMcp {
     }
 
     #[tool(
-        description = "Delete overlay outlines on F/B.Silkscreen and Cmts/Dwgs/Eco.User. Never Edge.Cuts (that would destroy the board). Optional layer filter. One undo. Use this after a cover check, or before export_manufacturing if the overlay was drawn on silk."
+        description = "Delete overlay outlines on F/B.Silkscreen and Cmts/Dwgs/Eco.User (including grouped table cell text). Never Edge.Cuts (that would destroy the board). Optional layer filter, or tag (e.g. \"4x5\") to delete one overlay group without wiping a silk logo or untagged add_text labels. One undo. Use this after a cover check, or before export_manufacturing if the overlay was drawn on silk."
     )]
     async fn clear_shapes(
         &self,
@@ -799,9 +798,33 @@ impl KicadMcp {
             if args.layer.is_some() {
                 crate::graphics::parse_graphic_layer(args.layer.as_deref())?;
             }
-            let ids = k.managed_graphic_ids(args.layer.as_deref()).await?;
+            let tag = crate::graphics::parse_overlay_tag(args.tag.as_deref())?;
+            let mut ids = if let Some(tag) = tag.as_deref() {
+                k.overlay_ids_for_tag(tag).await?
+            } else {
+                let mut ids = k
+                    .managed_graphic_ids(args.layer.as_deref(), None)
+                    .await?;
+                if args.layer.is_none() {
+                    ids.extend(k.overlay_group_ids().await?);
+                } else {
+                    let deleted: std::collections::HashSet<_> = ids.iter().cloned().collect();
+                    for g in k.overlay_groups().await? {
+                        if !g.member_ids.is_empty()
+                            && g.member_ids.iter().all(|m| deleted.contains(m))
+                        {
+                            if let Some(id) = g.id {
+                                ids.push(id);
+                            }
+                        }
+                    }
+                }
+                ids
+            };
+            ids.sort();
+            ids.dedup();
             if ids.is_empty() {
-                return Ok(serde_json::json!({ "ok": true, "deleted": 0 }));
+                return Ok(serde_json::json!({ "ok": true, "deleted": 0, "tag": tag, "layer": args.layer }));
             }
             let session = k.begin_commit().await?;
             match k.delete_ids(ids).await {
@@ -813,6 +836,7 @@ impl KicadMcp {
                         "ok": true,
                         "deleted": deleted.len(),
                         "layer": args.layer,
+                        "tag": tag,
                     }))
                 }
                 Err(e) => {
@@ -1483,7 +1507,7 @@ impl KicadMcp {
         }
         with_kicad(self, move |k| async move {
             let plotting = k
-                .board_shapes(None)
+                .board_shapes(None, None)
                 .await
                 .unwrap_or_default()
                 .iter()
@@ -1815,6 +1839,8 @@ pub struct GetPadsArgs {
 pub struct GetShapesArgs {
     /// F.Silkscreen, B.Silkscreen, Cmts.User, Dwgs.User, Eco1.User or Eco2.User. Omit for all overlay layers.
     pub layer: Option<String>,
+    /// Overlay group without the `kicad-mcp:` prefix, e.g. `"4x5"`.
+    pub tag: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
@@ -1949,21 +1975,25 @@ pub struct AddTextsArgs {
 
 #[derive(Debug, Clone, Deserialize, schemars::JsonSchema)]
 pub struct AddShapeArgs {
-    /// `rect`, `circle` or `polygon`.
+    /// `rect`, `circle`, `polygon`, `line` (aliases `segment`/`hline`/`vline`) or `table`.
     pub kind: String,
-    /// F.Silkscreen (default) / B.Silkscreen (plots) or Cmts.User / Dwgs.User / Eco1.User / Eco2.User (check-only). Never Edge.Cuts.
+    /// Cmts.User (default, check-only) / Dwgs.User / Eco1.User / Eco2.User, or F.Silkscreen / B.Silkscreen (plots). Never Edge.Cuts.
     pub layer: Option<String>,
-    /// Stroke width mm. Default 0.15. Silk min 0.15; user layers min 0.05.
+    /// Inner grid / line stroke width mm. Default 0.15. Silk min 0.15; user layers min 0.05.
     pub stroke_mm: Option<f64>,
-    /// Delete existing overlay graphics on this layer first. Default false.
+    /// Table outer-rect stroke. Default = stroke_mm.
+    pub border_stroke_mm: Option<f64>,
+    /// Delete existing overlay graphics first. With `tag`, only that group; otherwise the layer. Default false.
     pub replace: Option<bool>,
-    /// Rect bottom-left X (KiCad +y up).
+    /// Overlay group name (e.g. `"4x5"`). Stored as KiCad group `kicad-mcp:<tag>` so clear_shapes can delete it alone. Required when table `cells` has text.
+    pub tag: Option<String>,
+    /// Rect / table bottom-left X (KiCad +y up).
     pub origin_x_mm: Option<f64>,
     pub origin_y_mm: Option<f64>,
-    /// Rect centre (alternative to origin).
+    /// Rect / table centre (alternative to origin).
     pub center_x_mm: Option<f64>,
     pub center_y_mm: Option<f64>,
-    /// Rect size.
+    /// Rect size, or table overall size (alternative to cell_width_mm / cell_height_mm).
     pub width_mm: Option<f64>,
     pub height_mm: Option<f64>,
     /// Circle centre (also accepted as center_x_mm / center_y_mm).
@@ -1971,14 +2001,32 @@ pub struct AddShapeArgs {
     pub y_mm: Option<f64>,
     pub radius_mm: Option<f64>,
     pub diameter_mm: Option<f64>,
+    /// Line start (kind line).
+    pub a_x_mm: Option<f64>,
+    pub a_y_mm: Option<f64>,
+    /// Line end (kind line).
+    pub b_x_mm: Option<f64>,
+    pub b_y_mm: Option<f64>,
     /// Polygon vertices in KiCad millimetres (closed automatically).
     pub points: Option<Vec<OutlinePoint>>,
+    /// Table cell count (kind table). Inferred from `cells` if omitted.
+    pub rows: Option<u32>,
+    pub cols: Option<u32>,
+    /// Table cell size. Alternative: overall width_mm / height_mm.
+    pub cell_width_mm: Option<f64>,
+    pub cell_height_mm: Option<f64>,
+    /// Table cell strings, row-major, top row first as you read the finished layer (datasheet/Excel). On B.Silkscreen that is the physical back — do not reverse rows/columns. Empty string = skip. Needs tag.
+    pub cells: Option<Vec<Vec<String>>>,
+    /// Cell text height mm. Default 1.0 (silk floor 0.8; user layers 0.5). Must be smaller than the cell.
+    pub size_mm: Option<f64>,
+    /// Footprint reference (e.g. `"U1"`). Only with kind rect: size and centre come from the package body (JLCPCB `L…-W…` / EIA chip size at the footprint origin). Plotting silk is then gapped at pads/holes (0.15 mm), not refused.
+    pub reference: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct AddShapesArgs {
     pub shapes: Vec<AddShapeArgs>,
-    /// Delete existing overlay graphics on every layer used in this batch. Default false. Never Edge.Cuts.
+    /// Delete existing overlay graphics. With tag(s) in the batch, only those groups; without tags, every layer used. Default false. Never Edge.Cuts.
     pub replace: Option<bool>,
 }
 
@@ -1986,6 +2034,8 @@ pub struct AddShapesArgs {
 pub struct ClearShapesArgs {
     /// Limit delete to this overlay layer. Omit to clear silk + user overlays. Never Edge.Cuts.
     pub layer: Option<String>,
+    /// Delete only this overlay group (e.g. `"4x5"`). Omit to clear by layer.
+    pub tag: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -2055,6 +2105,33 @@ pub struct SetCopperLayersArgs {
     pub copper_layer_count: u32,
 }
 
+fn lookup_package_body(
+    reference: &str,
+    fps: &[crate::kicad::FootprintInfo],
+    pretty: &std::path::Path,
+    local_cache: &mut std::collections::HashMap<String, Option<crate::place::Aabb>>,
+) -> Option<crate::silk_dfm::BodyCorners> {
+    let fp = fps
+        .iter()
+        .find(|f| f.reference.as_deref() == Some(reference))?;
+    let template = fp.value.as_deref()?;
+    let local = local_cache
+        .entry(template.to_string())
+        .or_insert_with(|| {
+            let loaded = crate::place::load_template(pretty, template).ok()?;
+            Some(
+                crate::place::package_body_local(template, &loaded.pads)
+                    .unwrap_or(loaded.courtyard),
+            )
+        })
+        .as_ref()
+        .copied()?;
+    let x = fp.x_mm?;
+    let y = fp.y_mm?;
+    let rot = fp.rotation_deg.unwrap_or(0.0);
+    Some(crate::place::body_corners(&local, x, y, rot))
+}
+
 async fn commit_shapes(
     k: &Kicad,
     specs: &[AddShapeArgs],
@@ -2063,29 +2140,165 @@ async fn commit_shapes(
     if specs.is_empty() {
         return Err("add_shape needs at least one outline".into());
     }
-    let mut items = Vec::with_capacity(specs.len());
+    let mut items = Vec::new();
+    let mut item_tags: Vec<Option<String>> = Vec::new();
     let mut placed = Vec::with_capacity(specs.len());
     let mut layers: Vec<crate::graphics::GraphicLayer> = Vec::new();
+    let mut spec_tags: Vec<String> = Vec::new();
+    let mut pads_cache: Option<Vec<crate::pads::PadRow>> = None;
+    let mut fps_cache: Option<Vec<crate::kicad::FootprintInfo>> = None;
+    let mut pretty_dir: Option<std::path::PathBuf> = None;
+    let mut body_local: std::collections::HashMap<String, Option<crate::place::Aabb>> =
+        std::collections::HashMap::new();
     for spec in specs {
-        let made = crate::graphics::shape_any(&shape_spec_from_args(spec))?;
-        if !layers.iter().any(|l| l.id == made.layer.id) {
-            layers.push(made.layer);
+        let mut shape = shape_spec_from_args(spec);
+        let mut package_body = false;
+        if let Some(r) = spec
+            .reference
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            if pads_cache.is_none() {
+                pads_cache = Some(crate::pads::board_pads(k, None, None).await?);
+            }
+            let of_ref: Vec<_> = pads_cache
+                .as_ref()
+                .unwrap()
+                .iter()
+                .filter(|p| p.reference == r)
+                .cloned()
+                .collect();
+            if fps_cache.is_none() {
+                fps_cache = Some(k.footprints().await?);
+            }
+            if pretty_dir.is_none() {
+                pretty_dir = Some(crate::kicad::jlc_pretty_dir(&k.project_dir().await?));
+            }
+            let body = lookup_package_body(
+                r,
+                fps_cache.as_ref().unwrap(),
+                pretty_dir.as_ref().unwrap(),
+                &mut body_local,
+            );
+            package_body = body.is_some();
+            crate::silk_dfm::apply_reference(&mut shape, &of_ref, body)?;
         }
-        placed.push(serde_json::json!({
-            "kind": made.kind,
-            "layer": made.layer.name,
-            "plots": made.layer.plots,
-            "stroke_mm": made.stroke_mm,
-        }));
-        items.push(made.item);
+        let mut made = crate::graphics::shape_items(&shape)?;
+        if made.is_empty() {
+            return Err("add_shape produced no outlines".into());
+        }
+        let closed_before = made
+            .iter()
+            .filter(|m| m.kind == "rect" || m.kind == "circle" || m.kind == "polygon")
+            .count();
+        if made.iter().any(|m| m.layer.plots) {
+            if pads_cache.is_none() {
+                pads_cache = Some(crate::pads::board_pads(k, None, None).await?);
+            }
+            made = crate::silk_dfm::clip_plotting_silk(made, pads_cache.as_ref().unwrap())?;
+            if made.is_empty() {
+                return Err(format!(
+                    "F/B.Silkscreen overlay is entirely on pads/holes after {} mm gaps — nothing left to draw",
+                    crate::silk_dfm::SILK_TO_PAD_MM
+                ));
+            }
+        }
+        let gapped = made
+            .iter()
+            .filter(|m| m.kind == "rect" || m.kind == "circle" || m.kind == "polygon")
+            .count()
+            < closed_before;
+        let first = &made[0];
+        if !layers.iter().any(|l| l.id == first.layer.id) {
+            layers.push(first.layer);
+        }
+        if let Some(tag) = first.tag.as_ref() {
+            if !spec_tags.iter().any(|t| t == tag) {
+                spec_tags.push(tag.clone());
+            }
+        }
+        let mut entry = serde_json::json!({
+            "kind": first.group_kind,
+            "layer": first.layer.name,
+            "plots": first.layer.plots,
+            "stroke_mm": first.stroke_mm,
+            "items": made.len(),
+        });
+        if gapped {
+            entry["gapped"] = serde_json::json!(true);
+        }
+        if let Some(tag) = first.tag.as_ref() {
+            entry["tag"] = serde_json::json!(tag);
+        }
+        if let Some(r) = spec
+            .reference
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            entry["reference"] = serde_json::json!(r);
+            if let Some(w) = shape.width_mm {
+                entry["width_mm"] = serde_json::json!(w);
+            }
+            if let Some(h) = shape.height_mm {
+                entry["height_mm"] = serde_json::json!(h);
+            }
+            if let (Some(cx), Some(cy)) = (shape.center_x_mm, shape.center_y_mm) {
+                entry["center_x_mm"] = serde_json::json!(cx);
+                entry["center_y_mm"] = serde_json::json!(cy);
+            }
+            if package_body {
+                entry["package_body"] = serde_json::json!(true);
+            }
+        }
+        if first.group_kind == "table" {
+            let rows = spec
+                .rows
+                .unwrap_or(spec.cells.as_ref().map(|c| c.len() as u32).unwrap_or(0));
+            let cols = spec.cols.unwrap_or(
+                spec.cells
+                    .as_ref()
+                    .and_then(|c| c.iter().map(|r| r.len() as u32).max())
+                    .unwrap_or(0),
+            );
+            entry["rows"] = serde_json::json!(rows);
+            entry["cols"] = serde_json::json!(cols);
+            entry["border_stroke_mm"] = serde_json::json!(first.stroke_mm);
+            if let Some(inner) = made.iter().find(|m| m.kind == "segment") {
+                entry["stroke_mm"] = serde_json::json!(inner.stroke_mm);
+            }
+            let n_text = made.iter().filter(|m| m.kind == "text").count();
+            if n_text > 0 {
+                entry["texts"] = serde_json::json!(n_text);
+            }
+        }
+        placed.push(entry);
+        for m in &made {
+            item_tags.push(m.tag.clone());
+            items.push(m.item.clone());
+        }
+    }
+    if items.len() > crate::graphics::SHAPE_MAX {
+        return Err(format!(
+            "overlay max {} items in one undo (got {})",
+            crate::graphics::SHAPE_MAX,
+            items.len()
+        ));
     }
     let n_req = items.len();
     let session = k.begin_commit().await?;
     let mut replaced = 0usize;
     if replace {
         let mut ids = Vec::new();
-        for layer in &layers {
-            ids.extend(k.managed_graphic_ids(Some(layer.name)).await?);
+        if spec_tags.is_empty() {
+            for layer in &layers {
+                ids.extend(k.managed_graphic_ids(Some(layer.name), None).await?);
+            }
+        } else {
+            for tag in &spec_tags {
+                ids.extend(k.overlay_ids_for_tag(tag).await?);
+            }
         }
         ids.sort();
         ids.dedup();
@@ -2099,39 +2312,111 @@ async fn commit_shapes(
             }
         }
     }
-    match k.create_items(items).await {
-        Ok(n) => {
-            k.end_commit(session, &format!("kicad-mcp {n_req} overlay outlines"))
-                .await?;
-            let _ = k.refresh().await;
-            let plots = layers.iter().any(|l| l.plots);
-            let mut out = serde_json::json!({
-                "ok": true,
-                "count": n_req,
-                "items_created": n,
-                "replaced": replaced,
-                "placed": placed,
-            });
-            if specs.len() == 1 {
-                if let Some(first) = placed.first() {
-                    out["kind"] = first["kind"].clone();
-                    out["layer"] = first["layer"].clone();
-                    out["plots"] = first["plots"].clone();
-                    out["stroke_mm"] = first["stroke_mm"].clone();
-                }
-            }
-            if plots {
-                out["note"] = serde_json::json!(
-                    "Silk outlines plot to gerbers. clear_shapes before export_manufacturing unless this overlay belongs on the PCB. Cmts.User does not plot."
-                );
-            }
-            Ok(out)
-        }
+    let created = match k.create_items_created(items).await {
+        Ok(created) => created,
         Err(e) => {
             let _ = k.drop_commit(session).await;
-            Err(e)
+            return Err(e);
+        }
+    };
+    let n = created.len();
+    let mut by_tag: Vec<(String, Vec<String>)> = Vec::new();
+    if !spec_tags.is_empty() {
+        if created.len() != n_req {
+            let _ = k.drop_commit(session).await;
+            return Err(format!(
+                "KiCad created {n} shapes, expected {n_req}; cannot attach tag as a group"
+            ));
+        }
+        let mut map: std::collections::BTreeMap<String, Vec<String>> =
+            std::collections::BTreeMap::new();
+        for (any, tag) in created.iter().zip(item_tags.iter()) {
+            let Some(tag) = tag else {
+                continue;
+            };
+            let Some(id) = crate::graphics::overlay_item_id_from_any(any) else {
+                let _ = k.drop_commit(session).await;
+                return Err(
+                    "KiCad did not return overlay item ids; cannot attach tag as a group".into(),
+                );
+            };
+            map.entry(tag.clone()).or_default().push(id);
+        }
+        by_tag = map.into_iter().collect();
+    }
+    k.end_commit(session, &format!("kicad-mcp {n_req} overlay outlines"))
+        .await?;
+    let _ = k.refresh().await;
+    let mut groups_created = 0usize;
+    if !by_tag.is_empty() {
+        match k.create_overlay_groups(&by_tag).await {
+            Ok(g) => groups_created = g,
+            Err(e) => {
+                let member_ids: Vec<String> = by_tag
+                    .iter()
+                    .flat_map(|(_, ids)| ids.iter().cloned())
+                    .collect();
+                if !member_ids.is_empty() {
+                    if let Ok(session) = k.begin_commit().await {
+                        match k.delete_ids(member_ids).await {
+                            Ok(_) => {
+                                let _ = k
+                                    .end_commit(session, "kicad-mcp rollback untagged overlay")
+                                    .await;
+                            }
+                            Err(_) => {
+                                let _ = k.drop_commit(session).await;
+                            }
+                        }
+                    }
+                    let _ = k.refresh().await;
+                }
+                return Err(format!(
+                    "tag group failed (KiCad Group IPC) — overlay not kept: {e}"
+                ));
+            }
         }
     }
+    let plots = layers.iter().any(|l| l.plots);
+    let mut out = serde_json::json!({
+        "ok": true,
+        "count": specs.len(),
+        "items_created": n,
+        "groups_created": groups_created,
+        "replaced": replaced,
+        "placed": placed,
+    });
+    if specs.len() == 1 {
+        if let Some(first) = placed.first() {
+            out["kind"] = first["kind"].clone();
+            out["layer"] = first["layer"].clone();
+            out["plots"] = first["plots"].clone();
+            out["stroke_mm"] = first["stroke_mm"].clone();
+            if first.get("tag").is_some() {
+                out["tag"] = first["tag"].clone();
+            }
+            if first.get("rows").is_some() {
+                out["rows"] = first["rows"].clone();
+                out["cols"] = first["cols"].clone();
+            }
+            if first.get("border_stroke_mm").is_some() {
+                out["border_stroke_mm"] = first["border_stroke_mm"].clone();
+            }
+            if first.get("texts").is_some() {
+                out["texts"] = first["texts"].clone();
+            }
+        }
+    }
+    if plots {
+        out["note"] = serde_json::json!(
+            "Silk outlines plot to gerbers. clear_shapes before export_manufacturing unless this overlay belongs on the PCB. Cmts.User does not plot."
+        );
+    } else {
+        out["note"] = serde_json::json!(
+            "Check-only overlay on a user layer (does not plot). Turn on User.Comments in KiCad or it is invisible."
+        );
+    }
+    Ok(out)
 }
 
 fn shape_spec_from_args(a: &AddShapeArgs) -> crate::graphics::ShapeSpec {
@@ -2154,6 +2439,19 @@ fn shape_spec_from_args(a: &AddShapeArgs) -> crate::graphics::ShapeSpec {
             .as_ref()
             .map(|pts| pts.iter().map(|p| (p.x_mm, p.y_mm)).collect())
             .unwrap_or_default(),
+        rows: a.rows,
+        cols: a.cols,
+        cell_width_mm: a.cell_width_mm,
+        cell_height_mm: a.cell_height_mm,
+        tag: a.tag.clone(),
+        border_stroke_mm: a.border_stroke_mm,
+        a_x_mm: a.a_x_mm,
+        a_y_mm: a.a_y_mm,
+        b_x_mm: a.b_x_mm,
+        b_y_mm: a.b_y_mm,
+        cells: a.cells.clone().unwrap_or_default(),
+        size_mm: a.size_mm,
+        reference: a.reference.clone(),
     }
 }
 
@@ -2245,9 +2543,13 @@ impl ServerHandler for KicadMcp {
              (set_board_outline); default origin is the sheet centre, not 0,0. Outline replace defaults to true. \
              Place on free F.CrtYd space inside the board; placement refuses courtyard overlap. \
              add_text / add_texts place F.Silkscreen labels (5V/GND/DATA next to wire pads) — never F.Cu, never footprint Value. \
-             add_shape / add_shapes draw unfilled outlines (rect/circle/polygon) for a mechanical cover overlay. \
-             Default F.Silkscreen (plots to gerbers — clear_shapes before export unless it belongs on the PCB). \
-             Prefer Cmts.User for a check-only overlay. Never Edge.Cuts, never copper, never filled. get_shapes to verify (polygon_points = outline vertices, not PolySet count). \
+             add_shape / add_shapes draw unfilled outlines (rect/circle/polygon/line/table) for a mechanical cover overlay. \
+             Default Cmts.User (check-only, does not plot — turn on User.Comments in KiCad or the overlay is invisible). \
+             Explicit F.Silkscreen plots to gerbers — clear_shapes before export unless it belongs on the PCB. \
+             Plotting silk is gapped (not refused) where the stroke would sit on a same-side copper pad or a hole (JLCPCB 0.15 mm); cell text on a pad is omitted; refused only if nothing remains. Cmts.User is not checked. \
+             kind rect + reference (e.g. \"U1\") draws the package body (JLCPCB L/W) then gaps the pads. \
+             tag (e.g. \"4x5\") stores a KiCad group so clear_shapes can delete one overlay without wiping a silk logo. \
+             kind table is rows/cols plus cell size — grid of lines, one undo. cells (top row first as you read the finished layer) are BoardText on the same layer and need a tag. On B.Silkscreen the tool maps the matrix onto the physical back — do not reverse it. stroke_mm is the inner grid; border_stroke_mm the outer rect. kind line is two points (a_x_mm/a_y_mm + b_x_mm/b_y_mm); hline/vline must be axis-aligned (board millimetres, not flipped). Never Edge.Cuts, never copper, never filled. get_shapes to verify (polygon_points = outline vertices, not PolySet count; kind text = grouped overlay labels in reading order, not add_text 5V). \
              Typical write path: clear_board, set_board_outline, place_parts or place_matrix, connect_many \
              (assigns every pad that shares a pin number, e.g. thermal pad 41), \
              disconnect_pin to put a pad back on unconnected after a mis-wire, \

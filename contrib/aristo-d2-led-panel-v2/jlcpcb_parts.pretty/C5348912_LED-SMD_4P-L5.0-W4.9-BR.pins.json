@@ -1,0 +1,24 @@
+{
+  "lcsc_code": "C5348912",
+  "name": "SKC6812RGBW-NW",
+  "template": "C5348912_LED-SMD_4P-L5.0-W4.9-BR",
+  "source": "easyeda",
+  "pins": [
+    {
+      "number": "4",
+      "pin_name": "DOUT"
+    },
+    {
+      "number": "3",
+      "pin_name": "VDD"
+    },
+    {
+      "number": "2",
+      "pin_name": "DIN"
+    },
+    {
+      "number": "1",
+      "pin_name": "GND"
+    }
+  ]
+}

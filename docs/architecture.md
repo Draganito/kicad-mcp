@@ -63,12 +63,34 @@ recreates, then refills zones. An inner closed Edge.Cuts path is a
 ## Overlay graphics
 
 `add_shape` creates a `BoardGraphicShape` (native rect / circle /
-polygon, always unfilled) on F/B.Silkscreen or a user layer.
-`clear_shapes` deletes only those managed layers. Edge.Cuts is
-never in that set — a cover overlay must not become a board cutout.
-Layer parsing matches Edge.Cuts **before** copper (`edge.cuts`
-contains the substring `.cu`). `get_shapes` decodes the PolyLine and
-reports `polygon_points` as outline vertices, not `PolySet.polygons.len()`.
+polygon / line / table grid, always unfilled). Default layer is
+**Cmts.User** (does not plot). F/B.Silkscreen still plot. Optional `tag`
+is stored as a KiCad `Group` named `kicad-mcp:<tag>` so `clear_shapes`
+can delete one overlay without wiping a silk logo. The group is a
+**second undo**: KiCad 10.0.6 `PCB_GROUP::GetLayerSet` is the union of
+members already on the board, so CreateItems in the same commit as the
+outlines returns `no overlapping layers`. `kind: table` expands to an
+outer rectangle plus inner segments (shared edges are not doubled).
+`stroke_mm` is the inner grid; `border_stroke_mm` the outer rect.
+`cells` (top row first, as you read the finished layer) become `BoardText`
+on the same layer and need a tag so the group holds grid + text. On
+B.Silkscreen the matrix is mapped onto the flipped back (do not reverse
+it in the caller). `kind: line` is an open segment (board millimetres,
+not flipped). Plotting silk (`F.Silkscreen` / `B.Silkscreen`) is **gapped**
+where the stroke would sit on a same-side copper pad or a hole (JLCPCB
+0.15 mm + half stroke) — the outline is not refused. Front silk vs `F.Cu`,
+back silk vs `B.Cu`, PTH/NPTH holes on both. Cell text on a pad is omitted.
+Refused only if nothing remains. User layers are not checked. `kind: rect`
++ `reference` (e.g. `"U1"`) draws the package body (JLCPCB `L…-W…` / EIA
+size at the footprint origin), then clips
+the pads. `get_shapes` also lists grouped overlay texts (`kind: text`)
+in reading order; untagged `add_text`
+labels are omitted. `clear_shapes` deletes only managed layers (and those overlay groups,
+including cell text). Edge.Cuts is never in that set — a cover overlay
+must not become a board cutout. Layer parsing
+matches Edge.Cuts **before** copper (`edge.cuts` contains the substring
+`.cu`). `get_shapes` decodes the PolyLine and reports `polygon_points` as
+outline vertices, not `PolySet.polygons.len()`.
 
 ## Packaging
 

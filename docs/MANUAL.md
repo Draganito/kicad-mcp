@@ -38,6 +38,7 @@ Wire pads and mounting holes are generated parametrically:
 `list_parts` writes the defaults (`WirePad_PTH` 2.5/1.5 mm,
 `MountingHole_M3_NPTH` 3.2 mm); `make_wire_pad` / `make_mounting_hole`
 write any other size (e.g. `WirePad_PTH_3.2_2`, `MountingHole_4.5_NPTH`).
+Mounting-hole keepout copper has **no** soldermask opening (laminate, not a HASL ring).
 
 License: AGPL-3.0-only. KiCad itself is a separate GPL-3.0 program and
 is not shipped in this package.
@@ -236,29 +237,65 @@ footprint Value (export already strips U1/C3). Size default 1.0 mm
 
 ### Overlay outlines (cover / mask)
 
-`add_shape` / `add_shapes` (max 150, one undo) draws **unfilled**
-rectangles, circles or polygons so you can overlay a mechanical cover
-on the LEDs and check which parts sit in the openings.
+`add_shape` / `add_shapes` (max 150 items after expansion, one undo)
+draws **unfilled** rectangles, circles, polygons, **lines** or a
+**table** (grid of lines, optional cell text) so you can overlay a
+mechanical cover on the LEDs or a datasheet next to a part.
 
-- Default layer **F.Silkscreen** (visible on the parts; **plots to
-  gerbers**). `clear_shapes` before `export_manufacturing` unless that
-  outline belongs on the PCB. `export_manufacturing` **warns** if silk
-  overlays are still on the board (`warning` + `silk_overlay_count`).
-- **Cmts.User** / `Dwgs.User` / `Eco1.User` / `Eco2.User` do not plot —
-  use those for a check-only overlay. Turn on User.Comments in the KiCad
-  layer widget or the overlay is invisible.
+- Default layer **Cmts.User** (check-only, **does not plot**). Turn on
+  User.Comments in the KiCad layer widget or the overlay is invisible.
+  `Dwgs.User` / `Eco1.User` / `Eco2.User` also do not plot.
+- **F.Silkscreen** / `B.Silkscreen` **plot to gerbers**. Use `B.Silkscreen`
+  when the table is a printed datasheet. `export_manufacturing` **warns**
+  if silk overlays are still on the board (`warning` + `silk_overlay_count`).
+- `tag` (e.g. `"4x5"`, `"table"`) stores a KiCad group named
+  `kicad-mcp:<tag>`. `clear_shapes tag="4x5"` deletes that overlay without
+  wiping a silk logo. `replace=true` with a tag replaces only that group;
+  without a tag it still clears the layer used. The group is a second
+  undo (KiCad 10 needs members on the board before CreateItems will accept
+  the group). Cell text **requires** a tag so the group holds grid + text.
 - Never Edge.Cuts (that is the board / a cutout), never copper, never
   filled. `"edge.cuts"` is refused as a cutout, not as copper.
 - Rect: `origin_x_mm` / `origin_y_mm` (bottom-left, +y up) **or**
   `center_x_mm` / `center_y_mm`, plus `width_mm` / `height_mm`.
+  **`reference`** (e.g. `"U1"`) with `kind: rect` fills centre and size from
+  that footprint's **package body** (JLCPCB `L3.5-W3.5` or EIA `R0603` at
+  the footprint origin — not the copper pad envelope, and not F.CrtYd,
+  which often includes silk text). Omit origin/width. Plotting silk is then
+  **gapped** at pads and holes
+  (0.15 mm + half stroke) so the body outline can cross pads.
+- Plotting silk (`F.Silkscreen` / `B.Silkscreen`) is **not refused** when
+  a stroke crosses a pad. The line is interrupted with JLCPCB clearance.
+  Front silk vs `F.Cu`, back silk vs `B.Cu`, PTH/NPTH holes on both.
+  Cell text that sits on a pad is omitted. Refused only if nothing remains.
+  `Cmts.User` / other user layers are not checked.
 - Circle: `x_mm` / `y_mm` plus `radius_mm` or `diameter_mm`.
 - Polygon: `points: [{x_mm, y_mm}, …]` (closed automatically, max 400).
-- `stroke_mm` default 0.15 (silk floor 0.15 mm).
-- `replace=true` deletes existing overlay graphics on that layer first
-  (never Edge.Cuts).
-- `get_shapes` lists them. `polygon_points` is the outline **vertex
-  count** (closing duplicate omitted), not how many polygons sit in the
-  PolySet. `clear_shapes` (optional `layer`) removes them.
+- Line: `a_x_mm` / `a_y_mm` + `b_x_mm` / `b_y_mm` (aliases `segment`,
+  `hline`, `vline`). `hline` must be horizontal; `vline` vertical.
+  Length 0.5–400 mm. Own `stroke_mm`. Several loose lines via `add_shapes`
+  plus a shared `tag`.
+- Table: `rows` / `cols` plus `cell_width_mm` / `cell_height_mm` (or
+  overall `width_mm` / `height_mm`). Outer rectangle plus inner grid
+  lines so shared edges are not double-stroked. Max 40×40 cells.
+  `stroke_mm` is the inner grid (default 0.15); `border_stroke_mm` is the
+  outer rect (default = inner). `cells` is `[["top-left", …], …]` as you
+  **read the finished layer** (datasheet/Excel, top row first); empty string
+  skips that cell. On **B.Silkscreen** that is the physical back — the tool
+  maps the matrix onto the flipped board coordinates. Do **not** reverse
+  rows/columns yourself. Origin/centre stay KiCad millimetres (front, +y
+  up). Rows/cols are inferred from `cells` when omitted. Cell text is
+  BoardText on the **same layer**, centred, `size_mm` default 1.0 (silk
+  floor 0.8, user layers 0.5) and must be smaller than the cell.
+  B.Silkscreen glyphs are mirrored. Loose `line` endpoints stay board mm
+  (not flipped).
+- `add_text` stays silk-only connector labels (`5V` / `GND` / `DATA`).
+  Table cells are not that tool.
+- `get_shapes` lists graphics and **grouped** overlay text (`kind: text`)
+  in reading order on that layer. Untagged `add_text` labels are omitted. `polygon_points` is the outline
+  **vertex count** (closing duplicate omitted), not how many polygons sit
+  in the PolySet. `clear_shapes` (optional `layer` or `tag`) removes
+  them, including grouped cell text.
 
 `autoroute_nets` runs the optional KiCad Routing Tools **CLI** (not the
 wx dialog). Needs `kicad-routing-tools-setup` and KiCad 10 via `kicad-10`.
@@ -280,7 +317,7 @@ KiCad `BeginCommit` races.
 | `get_footprints` | Read — ref, position, rotation |
 | `get_nets` | Read — nets and pads |
 | `get_pads` | Read — baked pad truth (position, net, rotation, layers) |
-| `get_shapes` | Read — overlay outlines (silk / user; never Edge.Cuts) |
+| `get_shapes` | Read — overlay outlines (silk / user / tag; never Edge.Cuts) |
 | `check_placement` | Read — hard OK/fail: template pads vs baked pads |
 | `get_routing_scene` | Read — tracks/vias + ids; optional `net` |
 | `list_parts` | Read — templates including builtins |
@@ -300,8 +337,8 @@ KiCad `BeginCommit` races.
 | `clear_zones` | Write — zones only |
 | `set_board_outline` | Write — Edge.Cuts |
 | `add_text` / `add_texts` | Write — silk label (F/B.Silkscreen) |
-| `add_shape` / `add_shapes` | Write — unfilled overlay outline (silk or Cmts.User) |
-| `clear_shapes` | Write — overlay outlines only (never Edge.Cuts) |
+| `add_shape` / `add_shapes` | Write — unfilled overlay (default Cmts.User; line / table / cells; `reference` body outline; plotting silk gapped at pads) |
+| `clear_shapes` | Write — overlay outlines only (layer or tag; never Edge.Cuts) |
 | `connect_pins` / `connect_many` | Write — ratsnest (every same-number pad) |
 | `disconnect_pin` / `disconnect_many` | Write — pin back to unconnected |
 | `add_track` / `add_tracks` | Write — track |

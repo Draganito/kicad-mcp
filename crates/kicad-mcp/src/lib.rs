@@ -29,4 +29,5 @@ pub mod place;
 pub mod proto_wire;
 pub mod review;
 pub mod silk;
+pub mod silk_dfm;
 pub mod stitch;

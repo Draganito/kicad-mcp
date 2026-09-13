@@ -637,9 +637,15 @@ fn led_cells(input: &ReviewInput) -> Vec<LedCell> {
         if pads.len() != 4 {
             continue;
         }
-        let Some(p1) = pad_of(&pads, "1") else { continue };
-        let Some(p2) = pad_of(&pads, "2") else { continue };
-        let Some(p3) = pad_of(&pads, "3") else { continue };
+        let Some(p1) = pad_of(&pads, "1") else {
+            continue;
+        };
+        let Some(p2) = pad_of(&pads, "2") else {
+            continue;
+        };
+        let Some(p3) = pad_of(&pads, "3") else {
+            continue;
+        };
         if pad_of(&pads, "4").is_none() {
             continue;
         }
@@ -823,8 +829,12 @@ fn cap_polarity_finding(input: &ReviewInput) -> Vec<Finding> {
         }
         checked += 1;
         let closer = pads.iter().min_by(|a, b| {
-            dist(a.x_mm, a.y_mm, near_led.pin1_x, near_led.pin1_y)
-                .total_cmp(&dist(b.x_mm, b.y_mm, near_led.pin1_x, near_led.pin1_y))
+            dist(a.x_mm, a.y_mm, near_led.pin1_x, near_led.pin1_y).total_cmp(&dist(
+                b.x_mm,
+                b.y_mm,
+                near_led.pin1_x,
+                near_led.pin1_y,
+            ))
         });
         if closer.is_some_and(|p| net_kind(&p.net) != NetKind::Ground) {
             swapped.push(*r);

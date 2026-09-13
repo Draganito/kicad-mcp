@@ -164,8 +164,9 @@ fn keepout_circle_pts(radius_mm: f64) -> String {
         .join("\n")
 }
 
-/// NPTH mounting hole: `hole_mm` drill, oversized copper-free pad + keepout
-/// so a typical screw head and tightening pressure do not sit on a pour.
+/// NPTH mounting hole: `hole_mm` drill, oversized copper pad + keepout
+/// so a typical screw head sits on soldermask/laminate, not on a pour
+/// or HASL. Mask stays closed over the keepout copper.
 /// Courtyard matches the keepout diameter.
 fn mounting_hole_mod(name: &str, hole_mm: f64) -> String {
     let keepout = mounting_hole_keepout_mm(hole_mm);
@@ -176,7 +177,7 @@ fn mounting_hole_mod(name: &str, hole_mm: f64) -> String {
 	(version 20240108)
 	(generator "kicad-mcp")
 	(layer "F.Cu")
-	(descr "Mounting hole, {hole}mm NPTH, {keepout}mm copper keepout for screw head")
+	(descr "Mounting hole, {hole}mm NPTH, {keepout}mm copper keepout, soldermask closed")
 	(tags "mounting hole NPTH keepout")
 	(attr exclude_from_bom exclude_from_pos_files)
 	(fp_text reference "REF**" (at 0 {text_y} unlocked) (layer "F.SilkS")
@@ -189,7 +190,7 @@ fn mounting_hole_mod(name: &str, hole_mm: f64) -> String {
 	(fp_line (start {cy} -{cy}) (end {cy} {cy}) (layer "F.CrtYd") (stroke (width 0.05) (type solid)))
 	(fp_line (start {cy} {cy}) (end -{cy} {cy}) (layer "F.CrtYd") (stroke (width 0.05) (type solid)))
 	(fp_line (start -{cy} {cy}) (end -{cy} -{cy}) (layer "F.CrtYd") (stroke (width 0.05) (type solid)))
-	(pad "" npth circle (at 0 0) (size {keepout} {keepout}) (drill {hole}) (layers "*.Cu" "*.Mask"))
+	(pad "" npth circle (at 0 0) (size {keepout} {keepout}) (drill {hole}) (layers "*.Cu"))
 	(zone
 		(net 0)
 		(net_name "")
@@ -249,9 +250,12 @@ mod tests {
         assert_eq!(pads[0].kind, place::ModPadKind::Npth);
         assert_eq!(pads[0].drill_mm, Some(3.2));
         assert!((pads[0].width_mm - 7.5).abs() < 1e-6);
+        assert!(!pads[0].mask);
         let cy = place::parse_kicad_mod_courtyard(&body).unwrap();
         assert!((cy.max_x - cy.min_x - 7.5).abs() < 1e-6);
         assert!(body.contains("copperpour not_allowed"));
+        assert!(body.contains("(layers \"*.Cu\")"));
+        assert!(!body.contains("*.Mask"));
     }
 
     #[test]

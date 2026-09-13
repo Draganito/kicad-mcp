@@ -137,17 +137,16 @@ pub fn coverage(rows: &[PinRow], allow: &[String]) -> CoverageReport {
     open.sort_by_key(|p| (nat_key(&p.reference), nat_key(&p.pin)));
 
     let mut matched_allow: BTreeSet<String> = BTreeSet::new();
-    let (allowed_open, open_pins): (Vec<OpenPin>, Vec<OpenPin>) =
-        open.into_iter().partition(|p| {
-            let key = format!("{}.{}", p.reference, p.pin).to_ascii_uppercase();
-            let hit = allow_norm.iter().find(|(k, _)| *k == key);
-            if let Some((k, _)) = hit {
-                matched_allow.insert(k.clone());
-                true
-            } else {
-                false
-            }
-        });
+    let (allowed_open, open_pins): (Vec<OpenPin>, Vec<OpenPin>) = open.into_iter().partition(|p| {
+        let key = format!("{}.{}", p.reference, p.pin).to_ascii_uppercase();
+        let hit = allow_norm.iter().find(|(k, _)| *k == key);
+        if let Some((k, _)) = hit {
+            matched_allow.insert(k.clone());
+            true
+        } else {
+            false
+        }
+    });
 
     let allow_unmatched: Vec<String> = allow_norm
         .iter()
@@ -181,7 +180,10 @@ pub fn coverage(rows: &[PinRow], allow: &[String]) -> CoverageReport {
     } else {
         let mut parts = Vec::new();
         if !open_pins.is_empty() {
-            parts.push(format!("{} open pin(s) without justification", open_pins.len()));
+            parts.push(format!(
+                "{} open pin(s) without justification",
+                open_pins.len()
+            ));
         }
         if !single_pad_nets.is_empty() {
             parts.push(format!(
