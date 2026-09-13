@@ -18,6 +18,10 @@ is saved unless you ask.
 LEDs, 4 layers, designed this way from the first outline to the
 ordered Gerbers, manufactured by JLCPCB.
 
+**Work in progress:**
+[contrib/aristo-d2-led-panel-v2](contrib/aristo-d2-led-panel-v2) —
+112× WS2812B-MINI drop-in. Layout and gerbers only; not a build guide.
+
 ![MILUKA Aristo D2 replacement LED panel in KiCad](docs/aristo-d2-kicad.png)
 
 ![MILUKA Aristo D2 replacement LED panel in JLCPCB DFM](docs/aristo-d2-jlcpcb-dfm.png)

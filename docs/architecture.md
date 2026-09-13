@@ -97,7 +97,9 @@ outline vertices, not `PolySet.polygons.len()`.
 `dist/make_beta_package.sh` builds `target/release/kicad-mcp` and runs
 `cargo deb -p kicad-mcp`. The `.deb` ships `/usr/bin/kicad-mcp`, docs,
 and `contrib/cursor-setup`. The Aristo D2 LED panel that started the
-tool is `contrib/aristo-d2-led-panel`. Live scratch boards under
+tool is `contrib/aristo-d2-led-panel`. The denser WS2812B-MINI
+revision is `contrib/aristo-d2-led-panel-v2` (work in progress). Live
+scratch boards under
 `kicad_projekte/` and `.cursor/` stay out of git.
 
 ## Manufacturing export
