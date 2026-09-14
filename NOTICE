@@ -8,6 +8,9 @@ KiCad is a separate program (GPL-3.0) and is not shipped in this package.
 This MCP server talks to a KiCad PCB editor you already have installed,
 over KiCad's official IPC API.
 
+The BASIC LATIN stroke-font table in `silk_newstroke_glyphs.rs` is from
+KiCad `newstroke_font.cpp` (Copyright KiCad Developers, GPL-2.0-or-later).
+
 The optional companion package kicad-routing-tools (same GitHub Releases
 page) redistributes KiCad Routing Tools (MIT, drandyhaas) plus CPython
 3.11 wheels for numpy/scipy/shapely. It is not part of kicad-mcp and

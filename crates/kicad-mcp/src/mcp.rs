@@ -634,7 +634,7 @@ impl KicadMcp {
     }
 
     #[tool(
-        description = "Place one silkscreen label (board text, not a footprint Value). text + x_mm/y_mm in KiCad millimetres. layer is F.Silkscreen (default) or B.Silkscreen — never F.Cu. size_mm defaults to 1.0 (min 0.8). rotation_deg optional. Use for connector names (5V, GND, DATA). Not U1/C3 refdes — export_manufacturing already strips those. Ctrl+Z undoes."
+        description = "Place one silkscreen label (board text, not a footprint Value). text + x_mm/y_mm in KiCad millimetres. layer is F.Silkscreen (default) or B.Silkscreen — never F.Cu. size_mm defaults to 1.0 (min 0.8). rotation_deg optional. Use for connector names (5V, GND, DATA). Not U1/C3 refdes — export_manufacturing already strips those. Plotting silk is punched at same-side pads, holes, and via drills (JLCPCB 0.18 mm from the hole); a letter on a hole is gapped. Ctrl+Z undoes."
     )]
     async fn add_text(
         &self,
@@ -645,6 +645,7 @@ impl KicadMcp {
         }
         with_kicad(self, move |k| async move {
             let layer = crate::silk::parse_silk_layer(args.layer.as_deref())?;
+            let graphic = crate::graphics::parse_graphic_layer(Some(layer.name))?;
             let item = crate::silk::text_any(
                 &args.text,
                 args.x_mm,
@@ -653,13 +654,41 @@ impl KicadMcp {
                 args.size_mm,
                 args.rotation_deg,
             )?;
+            let mut made = vec![crate::graphics::ShapeMade {
+                kind: "text",
+                group_kind: "text",
+                layer: graphic,
+                stroke_mm: args.size_mm.unwrap_or(1.0) * crate::silk::STROKE_RATIO,
+                tag: None,
+                item,
+            }];
+            let pads = crate::pads::board_pads(&k, None, None).await?;
+            let vias = board_via_holes(&k).await?;
+            made = crate::silk_dfm::clip_plotting_silk_holes(made, &pads, &vias)?;
+            if made.is_empty() {
+                return Err(format!(
+                    "silkscreen label {:?} is entirely on pads/holes after {} mm hole gaps",
+                    args.text.trim(),
+                    crate::silk_dfm::SILK_TO_HOLE_MM
+                ));
+            }
+            if made.len() > crate::silk_dfm::CLIPPED_ITEM_MAX {
+                return Err(format!(
+                    "silk label {:?} exploded to {} items after punch (max {})",
+                    args.text.trim(),
+                    made.len(),
+                    crate::silk_dfm::CLIPPED_ITEM_MAX
+                ));
+            }
+            let gapped = made.len() != 1 || made[0].kind != "text";
+            let items: Vec<_> = made.iter().map(|m| m.item.clone()).collect();
             let session = k.begin_commit().await?;
-            match k.create_items(vec![item]).await {
+            match k.create_items(items).await {
                 Ok(n) => {
                     k.end_commit(session, &format!("kicad-mcp silk {}", args.text.trim()))
                         .await?;
                     let _ = k.refresh().await;
-                    Ok(serde_json::json!({
+                    let mut out = serde_json::json!({
                         "ok": true,
                         "text": args.text.trim(),
                         "x_mm": args.x_mm,
@@ -667,7 +696,11 @@ impl KicadMcp {
                         "layer": layer.name,
                         "size_mm": args.size_mm.unwrap_or(1.0),
                         "items_created": n,
-                    }))
+                    });
+                    if gapped {
+                        out["gapped"] = serde_json::json!(true);
+                    }
+                    Ok(out)
                 }
                 Err(e) => {
                     let _ = k.drop_commit(session).await;
@@ -679,7 +712,7 @@ impl KicadMcp {
     }
 
     #[tool(
-        description = "Place many silkscreen labels in one undo (max 150). Each item is the same as add_text: {text, x_mm, y_mm, layer?, size_mm?, rotation_deg?}."
+        description = "Place many silkscreen labels in one undo (max 150 labels, 2000 items after silk punch). Each item is the same as add_text: {text, x_mm, y_mm, layer?, size_mm?, rotation_deg?}. Plotting silk is punched at pads/holes/via drills."
     )]
     async fn add_texts(
         &self,
@@ -699,26 +732,60 @@ impl KicadMcp {
                     args.texts.len()
                 ));
             }
-            let mut items = Vec::with_capacity(args.texts.len());
+            let pads = crate::pads::board_pads(&k, None, None).await?;
+            let vias = board_via_holes(&k).await?;
+            let mut items = Vec::new();
             let mut placed = Vec::with_capacity(args.texts.len());
             for t in &args.texts {
                 let layer = crate::silk::parse_silk_layer(t.layer.as_deref())?;
-                items.push(crate::silk::text_any(
+                let graphic = crate::graphics::parse_graphic_layer(Some(layer.name))?;
+                let item = crate::silk::text_any(
                     &t.text,
                     t.x_mm,
                     t.y_mm,
                     t.layer.as_deref(),
                     t.size_mm,
                     t.rotation_deg,
-                )?);
-                placed.push(serde_json::json!({
+                )?;
+                let made = vec![crate::graphics::ShapeMade {
+                    kind: "text",
+                    group_kind: "text",
+                    layer: graphic,
+                    stroke_mm: t.size_mm.unwrap_or(1.0) * crate::silk::STROKE_RATIO,
+                    tag: None,
+                    item,
+                }];
+                let made = crate::silk_dfm::clip_plotting_silk_holes(made, &pads, &vias)
+                    .map_err(|e| format!("silk label {:?}: {e}", t.text.trim()))?;
+                if made.is_empty() {
+                    return Err(format!(
+                        "silkscreen label {:?} is entirely on pads/holes after {} mm hole gaps",
+                        t.text.trim(),
+                        crate::silk_dfm::SILK_TO_HOLE_MM
+                    ));
+                }
+                let gapped = made.len() != 1 || made[0].kind != "text";
+                let mut entry = serde_json::json!({
                     "text": t.text.trim(),
                     "x_mm": t.x_mm,
                     "y_mm": t.y_mm,
                     "layer": layer.name,
-                }));
+                    "items": made.len(),
+                });
+                if gapped {
+                    entry["gapped"] = serde_json::json!(true);
+                }
+                placed.push(entry);
+                items.extend(made.into_iter().map(|m| m.item));
             }
-            let n_req = items.len();
+            if items.len() > crate::silk_dfm::CLIPPED_ITEM_MAX {
+                return Err(format!(
+                    "add_texts exploded to {} items after silk punch (max {})",
+                    items.len(),
+                    crate::silk_dfm::CLIPPED_ITEM_MAX
+                ));
+            }
+            let n_req = args.texts.len();
             let session = k.begin_commit().await?;
             match k.create_items(items).await {
                 Ok(n) => {
@@ -742,7 +809,7 @@ impl KicadMcp {
     }
 
     #[tool(
-        description = "Draw one unfilled outline (rect / circle / polygon / line / table) so you can overlay a mechanical cover or a datasheet on the board. Default Cmts.User (check-only, does not plot — turn on User.Comments in KiCad or it is invisible). F.Silkscreen / B.Silkscreen plot to gerbers — use B.Silkscreen for a printed datasheet, clear_shapes before export unless it belongs on the PCB. Plotting silk is gapped (not refused) where the stroke would sit on a same-side copper pad or a hole (JLCPCB 0.15 mm); cell text on a pad is omitted; refused only if nothing remains. Cmts.User is not checked. kind rect + reference (e.g. \"U1\") draws the package body (JLCPCB L/W or EIA size at the footprint origin) then gaps the pads — omit origin/width. Never Edge.Cuts, never copper, never filled. Rect: origin_x_mm/origin_y_mm (bottom-left) or center_x_mm/center_y_mm plus width_mm/height_mm. Circle: x_mm/y_mm plus radius_mm or diameter_mm. Polygon: points [{x_mm,y_mm}, …] (closed). Line: a_x_mm/a_y_mm + b_x_mm/b_y_mm (aliases hline/vline must be axis-aligned). Table: rows/cols plus cell_width_mm/cell_height_mm (or overall width/height) — grid of lines, one undo. cells is top-row-first as you read the finished layer (on B.Silkscreen that is the physical back — do not reverse the matrix). Empty string skips; needs tag. Origin/centre stay KiCad millimetres. stroke_mm is the inner grid (default 0.15); border_stroke_mm the outer rect. size_mm is cell text height (default 1.0; must be smaller than the cell). tag (e.g. \"4x5\") stores a KiCad group so clear_shapes can delete that overlay without wiping a silk logo. replace=true deletes that tag if set, otherwise existing overlay graphics on that layer. Ctrl+Z undoes."
+        description = "Draw one unfilled outline (rect / circle / polygon / line / table) so you can overlay a mechanical cover or a datasheet on the board. Default Cmts.User (check-only, does not plot — turn on User.Comments in KiCad or it is invisible). F.Silkscreen / B.Silkscreen plot to gerbers — use B.Silkscreen for a printed datasheet, clear_shapes before export unless it belongs on the PCB. Plotting silk is punched (not refused) where the stroke would sit on a same-side copper pad (0.15 mm), a hole, or a via drill (JLCPCB 0.18 mm from the hole); a letter on a hole is gapped, the rest of the line stays; refused only if nothing remains. Cmts.User is not checked. kind rect + reference (e.g. \"U1\") draws the package body (JLCPCB L/W or EIA size at the footprint origin) then gaps the pads — omit origin/width. Never Edge.Cuts, never copper, never filled. Rect: origin_x_mm/origin_y_mm (bottom-left) or center_x_mm/center_y_mm plus width_mm/height_mm. Circle: x_mm/y_mm plus radius_mm or diameter_mm. Polygon: points [{x_mm,y_mm}, …] (closed). Line: a_x_mm/a_y_mm + b_x_mm/b_y_mm (aliases hline/vline must be axis-aligned). Table: rows/cols plus cell_width_mm/cell_height_mm (or overall width/height) — grid of lines, one undo. cells is top-row-first as you read the finished layer (on B.Silkscreen that is the physical back — do not reverse the matrix). Empty string skips; needs tag. Origin/centre stay KiCad millimetres. stroke_mm is the inner grid (default 0.15); border_stroke_mm the outer rect. size_mm is cell text height (default 1.0; must be smaller than the cell). tag (e.g. \"4x5\") stores a KiCad group so clear_shapes can delete that overlay without wiping a silk logo. replace=true deletes that tag if set, otherwise existing overlay graphics on that layer. Ctrl+Z undoes."
     )]
     async fn add_shape(
         &self,
@@ -759,7 +826,7 @@ impl KicadMcp {
     }
 
     #[tool(
-        description = "Draw many unfilled cover/mask/datasheet outlines in one undo (max 150 items after table/line expansion and silk-to-pad gaps, including cell text). Each item is the same as add_shape: {kind, rect/circle/polygon/line/table fields, layer?, stroke_mm?, border_stroke_mm?, cells?, size_mm?, tag?, reference?}. Plotting silk (F/B.Silkscreen) is gapped at same-side pads/holes; Cmts.User is not checked. replace=true with tag(s) replaces those overlay groups only; without tags it deletes overlay graphics on every layer used in this batch (never Edge.Cuts)."
+        description = "Draw many unfilled cover/mask/datasheet outlines in one undo (max 150 items before silk punch, 2000 after via/pad gaps, including cell text). Each item is the same as add_shape: {kind, rect/circle/polygon/line/table fields, layer?, stroke_mm?, border_stroke_mm?, cells?, size_mm?, tag?, reference?}. Plotting silk (F/B.Silkscreen) is punched at same-side pads, PTH/NPTH holes, and via drills (0.18 mm from the hole); Cmts.User is not checked. replace=true with tag(s) replaces those overlay groups only; without tags it deletes overlay graphics on every layer used in this batch (never Edge.Cuts)."
     )]
     async fn add_shapes(
         &self,
@@ -2132,6 +2199,20 @@ fn lookup_package_body(
     Some(crate::place::body_corners(&local, x, y, rot))
 }
 
+async fn board_via_holes(k: &Kicad) -> Result<Vec<crate::silk_dfm::ViaHole>, String> {
+    Ok(k.vias()
+        .await?
+        .into_iter()
+        .filter_map(|v| {
+            Some(crate::silk_dfm::ViaHole {
+                x_mm: v.x_mm?,
+                y_mm: v.y_mm?,
+                drill_mm: v.drill_mm.filter(|d| *d > 0.0).unwrap_or(0.3),
+            })
+        })
+        .collect())
+}
+
 async fn commit_shapes(
     k: &Kicad,
     specs: &[AddShapeArgs],
@@ -2146,6 +2227,7 @@ async fn commit_shapes(
     let mut layers: Vec<crate::graphics::GraphicLayer> = Vec::new();
     let mut spec_tags: Vec<String> = Vec::new();
     let mut pads_cache: Option<Vec<crate::pads::PadRow>> = None;
+    let mut vias_cache: Option<Vec<crate::silk_dfm::ViaHole>> = None;
     let mut fps_cache: Option<Vec<crate::kicad::FootprintInfo>> = None;
     let mut pretty_dir: Option<std::path::PathBuf> = None;
     let mut body_local: std::collections::HashMap<String, Option<crate::place::Aabb>> =
@@ -2196,11 +2278,18 @@ async fn commit_shapes(
             if pads_cache.is_none() {
                 pads_cache = Some(crate::pads::board_pads(k, None, None).await?);
             }
-            made = crate::silk_dfm::clip_plotting_silk(made, pads_cache.as_ref().unwrap())?;
+            if vias_cache.is_none() {
+                vias_cache = Some(board_via_holes(k).await?);
+            }
+            made = crate::silk_dfm::clip_plotting_silk_holes(
+                made,
+                pads_cache.as_ref().unwrap(),
+                vias_cache.as_ref().unwrap(),
+            )?;
             if made.is_empty() {
                 return Err(format!(
-                    "F/B.Silkscreen overlay is entirely on pads/holes after {} mm gaps — nothing left to draw",
-                    crate::silk_dfm::SILK_TO_PAD_MM
+                    "F/B.Silkscreen overlay is entirely on pads/holes after {} mm hole gaps — nothing left to draw",
+                    crate::silk_dfm::SILK_TO_HOLE_MM
                 ));
             }
         }
@@ -2279,10 +2368,10 @@ async fn commit_shapes(
             items.push(m.item.clone());
         }
     }
-    if items.len() > crate::graphics::SHAPE_MAX {
+    if items.len() > crate::silk_dfm::CLIPPED_ITEM_MAX {
         return Err(format!(
-            "overlay max {} items in one undo (got {})",
-            crate::graphics::SHAPE_MAX,
+            "overlay max {} items in one undo after silk punch (got {})",
+            crate::silk_dfm::CLIPPED_ITEM_MAX,
             items.len()
         ));
     }
@@ -2542,11 +2631,11 @@ impl ServerHandler for KicadMcp {
              The pink A4 frame is the drawing sheet, not the PCB. Board size is an Edge.Cuts rectangle \
              (set_board_outline); default origin is the sheet centre, not 0,0. Outline replace defaults to true. \
              Place on free F.CrtYd space inside the board; placement refuses courtyard overlap. \
-             add_text / add_texts place F.Silkscreen labels (5V/GND/DATA next to wire pads) — never F.Cu, never footprint Value. \
+             add_text / add_texts place F.Silkscreen labels (5V/GND/DATA next to wire pads) — never F.Cu, never footprint Value. Plotting silk labels are punched at pads/holes/via drills like overlay text. \
              add_shape / add_shapes draw unfilled outlines (rect/circle/polygon/line/table) for a mechanical cover overlay. \
              Default Cmts.User (check-only, does not plot — turn on User.Comments in KiCad or the overlay is invisible). \
              Explicit F.Silkscreen plots to gerbers — clear_shapes before export unless it belongs on the PCB. \
-             Plotting silk is gapped (not refused) where the stroke would sit on a same-side copper pad or a hole (JLCPCB 0.15 mm); cell text on a pad is omitted; refused only if nothing remains. Cmts.User is not checked. \
+             Plotting silk is punched (not refused) where the stroke would sit on a same-side copper pad (0.15 mm), a hole, or a via drill (JLCPCB 0.18 mm from the hole); a letter on a hole is gapped, the rest of the line stays; refused only if nothing remains. Cmts.User is not checked. \
              kind rect + reference (e.g. \"U1\") draws the package body (JLCPCB L/W) then gaps the pads. \
              tag (e.g. \"4x5\") stores a KiCad group so clear_shapes can delete one overlay without wiping a silk logo. \
              kind table is rows/cols plus cell size — grid of lines, one undo. cells (top row first as you read the finished layer) are BoardText on the same layer and need a tag. On B.Silkscreen the tool maps the matrix onto the physical back — do not reverse it. stroke_mm is the inner grid; border_stroke_mm the outer rect. kind line is two points (a_x_mm/a_y_mm + b_x_mm/b_y_mm); hline/vline must be axis-aligned (board millimetres, not flipped). Never Edge.Cuts, never copper, never filled. get_shapes to verify (polygon_points = outline vertices, not PolySet count; kind text = grouped overlay labels in reading order, not add_text 5V). \

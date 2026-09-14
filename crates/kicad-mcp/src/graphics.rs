@@ -11,7 +11,7 @@
 //! same layer (need a tag so `clear_shapes` deletes grid + text). On
 //! B.Silkscreen, `cells` is still top-row-first as you read the finished
 //! back — the tool maps that onto the flipped board coordinates.
-//! Plotting silk is gapped at same-side pads and holes (`silk_dfm`).
+//! Plotting silk is punched at same-side pads, holes, and via drills (`silk_dfm`).
 //! `kind: rect` + `reference` draws the package body, then clips.
 
 use prost::Message;
@@ -885,7 +885,14 @@ fn table_cell_texts(
                 None,
                 min_size,
             )?;
-            out.push(made("text", "table", layer, 0.0, tag.clone(), item));
+            out.push(made(
+                "text",
+                "table",
+                layer,
+                size * crate::silk::STROKE_RATIO,
+                tag.clone(),
+                item,
+            ));
         }
     }
     Ok(out)

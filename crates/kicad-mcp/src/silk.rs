@@ -26,7 +26,7 @@ const MAX_CHARS: usize = 80;
 /// Max labels in one `add_texts` undo.
 pub const SILK_MAX: usize = 150;
 /// Stroke = 15 % of height (1.0 mm → 0.15 mm, KiCad default).
-const STROKE_RATIO: f64 = 0.15;
+pub const STROKE_RATIO: f64 = 0.15;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SilkLayer {
@@ -106,6 +106,18 @@ pub fn text_on_layer(
     if !rot.is_finite() {
         return Err("rotation_deg must be finite".into());
     }
+    encode_board_text(body, x_mm, y_mm, layer_id, mirrored, size, rot)
+}
+
+fn encode_board_text(
+    body: String,
+    x_mm: f64,
+    y_mm: f64,
+    layer_id: i32,
+    mirrored: bool,
+    size: f64,
+    rot: f64,
+) -> Result<Any, String> {
     let size_nm = mm_to_nm(size);
     let stroke_nm = mm_to_nm(size * STROKE_RATIO);
     let proto = BoardText {
@@ -174,26 +186,51 @@ pub fn text_body_from_any(any: &Any) -> Option<String> {
     (!body.is_empty()).then_some(body)
 }
 
-/// Centre, height (mm) and body — for silk-to-pad AABB of overlay cell text.
+/// Centre, height (mm) and body.
 pub fn text_metrics_from_any(any: &Any) -> Option<(f64, f64, f64, String)> {
+    let t = overlay_text_from_any(any)?;
+    Some((t.x_mm, t.y_mm, t.size_mm, t.body))
+}
+
+#[derive(Clone, Debug)]
+pub struct OverlayText {
+    pub x_mm: f64,
+    pub y_mm: f64,
+    pub size_mm: f64,
+    pub body: String,
+    pub mirrored: bool,
+    pub rotation_deg: f64,
+    pub stroke_mm: f64,
+}
+
+pub fn overlay_text_from_any(any: &Any) -> Option<OverlayText> {
     if !any.type_url.ends_with("BoardText") {
         return None;
     }
     let p = BoardText::decode(any.value.as_slice()).ok()?;
     let text = p.text?;
     let pos = text.position?;
-    let size = text.attributes.as_ref()?.size.as_ref()?;
+    let attr = text.attributes?;
+    let size = attr.size.as_ref()?;
     let body = text.text;
     if body.is_empty() {
         return None;
     }
     let h = (size.y_nm as f64 / 1_000_000.0).max(size.x_nm as f64 / 1_000_000.0);
-    Some((
-        pos.x_nm as f64 / 1_000_000.0,
-        pos.y_nm as f64 / 1_000_000.0,
-        h,
+    let stroke = attr
+        .stroke_width
+        .as_ref()
+        .map(|d| d.value_nm as f64 / 1_000_000.0)
+        .unwrap_or(h * STROKE_RATIO);
+    Some(OverlayText {
+        x_mm: pos.x_nm as f64 / 1_000_000.0,
+        y_mm: pos.y_nm as f64 / 1_000_000.0,
+        size_mm: h,
         body,
-    ))
+        mirrored: attr.mirrored,
+        rotation_deg: attr.angle.map(|a| a.value_degrees).unwrap_or(0.0),
+        stroke_mm: stroke,
+    })
 }
 
 fn sanitize_text(text: &str) -> Result<String, String> {

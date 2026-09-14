@@ -98,6 +98,9 @@ pub struct ViaInfo {
     pub net: Option<String>,
     pub x_mm: Option<f64>,
     pub y_mm: Option<f64>,
+    /// Drill diameter (mm). Absent when KiCad omits the padstack.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub drill_mm: Option<f64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -760,11 +763,19 @@ fn track_info(t: PcbTrack) -> TrackInfo {
 }
 
 fn via_from_pcb(v: PcbVia) -> ViaInfo {
+    let drill_mm = v
+        .pad_stack
+        .as_ref()
+        .and_then(|s| s.drill.as_ref())
+        .and_then(|d| d.diameter_nm)
+        .map(|p| nm_to_mm(p.x_nm))
+        .filter(|d| *d > 0.0);
     ViaInfo {
         id: v.id,
         net: v.net.map(|n| n.name),
         x_mm: v.position_nm.map(|p| nm_to_mm(p.x_nm)),
         y_mm: v.position_nm.map(|p| nm_to_mm(p.y_nm)),
+        drill_mm,
     }
 }
 

@@ -1,13 +1,14 @@
 //! JLCPCB silk-to-pad / silk-to-hole for plotting overlay outlines.
 //!
 //! Plotting silk (`F.Silkscreen` / `B.Silkscreen`) must not *print* on copper
-//! pads or holes. The outline stays; the stroke is **gapped** where it would
-//! collide (JLCPCB 0.15 mm + half stroke). User layers are not checked.
-//! Same-side only: front silk vs `F.Cu`, back silk vs `B.Cu`, PTH/NPTH
-//! holes on both. `kind: rect` + `reference` is the **package body**
-//! (JLCPCB `L…-W…` / EIA size at the footprint origin), not the pad
-//! envelope; clipping opens the pads. Cell text on a pad is omitted.
-//! Refused only when nothing remains.
+//! pads or holes. The outline stays; the stroke is **punched** where it would
+//! collide (pads: JLCPCB 0.15 mm; drills/vias: 0.18 mm + half stroke). User
+//! layers are not checked. Same-side only: front silk vs `F.Cu`, back silk
+//! vs `B.Cu`, PTH/NPTH holes and via drills on both. Cell text is the KiCad
+//! stroke font: clear runs stay BoardText; a letter on a hole is gapped
+//! (character void), not the whole line deleted. `kind: rect` + `reference`
+//! is the package body; clipping opens the pads. Refused only when nothing
+//! remains.
 
 use crate::graphics::{
     overlay_segment, parse_graphic_layer, polygon_vertices_mm_from_any, shape_snap_from_any,
@@ -15,10 +16,16 @@ use crate::graphics::{
 };
 use crate::pads::PadRow;
 
-/// JLCPCB silk-to-pad / silk-to-hole, same number as the silk min stroke.
+/// JLCPCB silk-to-pad (same number as the silk min stroke).
 pub const SILK_TO_PAD_MM: f64 = 0.15;
+/// JLCPCB silk-to-hole "good" (warning floor 0.18 mm from the drill edge).
+pub const SILK_TO_HOLE_MM: f64 = 0.18;
+/// After punching vias, one table can expand past [`crate::graphics::SHAPE_MAX`].
+pub const CLIPPED_ITEM_MAX: usize = 2000;
 /// Drop clipped remnants shorter than a drawable line.
 const MIN_PIECE_MM: f64 = 0.5;
+/// Keep letter fragments after a via punch (a 1 mm `p` is mostly shorter).
+const MIN_TEXT_PIECE_MM: f64 = 0.12;
 /// Extra millimetres so remaining ink sits strictly outside the keepout
 /// (gerber rounding / closed AABB edges).
 const CLIP_SLACK_MM: f64 = 0.01;
@@ -34,15 +41,6 @@ struct BoxMm {
 }
 
 impl BoxMm {
-    fn from_center(x: f64, y: f64, w: f64, h: f64) -> Self {
-        Self {
-            min_x: x - w / 2.0,
-            min_y: y - h / 2.0,
-            max_x: x + w / 2.0,
-            max_y: y + h / 2.0,
-        }
-    }
-
     fn expand(self, d: f64) -> Self {
         Self {
             min_x: self.min_x - d,
@@ -75,13 +73,6 @@ impl BoxMm {
 
     fn cy(self) -> f64 {
         (self.min_y + self.max_y) / 2.0
-    }
-
-    fn overlaps(self, other: Self) -> bool {
-        self.min_x < other.max_x - HIT_EPS_MM
-            && self.max_x > other.min_x + HIT_EPS_MM
-            && self.min_y < other.max_y - HIT_EPS_MM
-            && self.max_y > other.min_y + HIT_EPS_MM
     }
 }
 
@@ -251,15 +242,36 @@ fn part_outline_aabb(pads: &[PadRow], layer: GraphicLayer) -> Result<BoxMm, Stri
     Ok(union)
 }
 
+/// Via drill to keep silk out of (board millimetres).
+#[derive(Clone, Copy, Debug)]
+pub struct ViaHole {
+    pub x_mm: f64,
+    pub y_mm: f64,
+    /// Drill diameter, not radius.
+    pub drill_mm: f64,
+}
+
 /// Gap plotting silk where the stroke or cell text sits on a same-side
 /// pad or hole. User layers are copied through. Refused only if every
 /// plotting item disappears.
 pub fn clip_plotting_silk(made: Vec<ShapeMade>, pads: &[PadRow]) -> Result<Vec<ShapeMade>, String> {
+    clip_plotting_silk_holes(made, pads, &[])
+}
+
+/// Same as [`clip_plotting_silk`], plus via drills (both silk sides).
+pub fn clip_plotting_silk_holes(
+    made: Vec<ShapeMade>,
+    pads: &[PadRow],
+    vias: &[ViaHole],
+) -> Result<Vec<ShapeMade>, String> {
     if !made.iter().any(|m| m.layer.plots) {
         return Ok(made);
     }
-    let front = keepouts_for_silk(pads, false);
-    let back = keepouts_for_silk(pads, true);
+    let via_kos = via_keepouts(vias);
+    let mut front = keepouts_for_silk(pads, false);
+    front.extend(via_kos.iter().cloned());
+    let mut back = keepouts_for_silk(pads, true);
+    back.extend(via_kos);
     let had_plotting = made.iter().any(|m| m.layer.plots);
     let mut out = Vec::with_capacity(made.len());
     let mut kept_plotting = 0usize;
@@ -279,7 +291,7 @@ pub fn clip_plotting_silk(made: Vec<ShapeMade>, pads: &[PadRow]) -> Result<Vec<S
     }
     if had_plotting && kept_plotting == 0 {
         return Err(format!(
-            "F/B.Silkscreen overlay is entirely on pads/holes after {SILK_TO_PAD_MM} mm gaps — nothing left to draw"
+            "F/B.Silkscreen overlay is entirely on pads/holes after {SILK_TO_HOLE_MM} mm hole gaps — nothing left to draw"
         ));
     }
     Ok(out)
@@ -287,17 +299,7 @@ pub fn clip_plotting_silk(made: Vec<ShapeMade>, pads: &[PadRow]) -> Result<Vec<S
 
 fn clip_one(m: ShapeMade, keepouts: &[Keepout]) -> Result<Vec<ShapeMade>, String> {
     if m.kind == "text" {
-        let Some((x, y, size, body)) = crate::silk::text_metrics_from_any(&m.item) else {
-            return Err("cannot DFM-check overlay text".into());
-        };
-        let n = body.chars().count().max(1) as f64;
-        let w = (n * size * 0.9).max(size);
-        let h = size;
-        let ink = BoxMm::from_center(x, y, w, h);
-        if keepouts.iter().any(|k| filled_hits_keepout(ink, 0.0, k)) {
-            return Ok(Vec::new());
-        }
-        return Ok(vec![m]);
+        return punch_text(m, keepouts);
     }
     let stroke = if m.stroke_mm.is_finite() {
         m.stroke_mm.max(0.0)
@@ -330,7 +332,7 @@ fn clip_one(m: ShapeMade, keepouts: &[Keepout]) -> Result<Vec<ShapeMade>, String
     let mut pieces = Vec::new();
     let mut gapped = false;
     for edge in &edges {
-        let clipped = clip_segment(*edge, stroke, keepouts);
+        let clipped = clip_segment(*edge, stroke, keepouts, MIN_PIECE_MM);
         let orig_len = hypot(edge[1][0] - edge[0][0], edge[1][1] - edge[0][1]);
         let kept_len: f64 = clipped
             .iter()
@@ -359,6 +361,117 @@ fn clip_one(m: ShapeMade, keepouts: &[Keepout]) -> Result<Vec<ShapeMade>, String
             )
         })
         .collect())
+}
+
+fn punch_text(m: ShapeMade, keepouts: &[Keepout]) -> Result<Vec<ShapeMade>, String> {
+    let t = crate::silk::overlay_text_from_any(&m.item)
+        .ok_or_else(|| "cannot DFM-check overlay text".to_string())?;
+    let chars = crate::silk_stroke::layout_chars(
+        &t.body,
+        t.size_mm,
+        t.x_mm,
+        t.y_mm,
+        t.mirrored,
+        t.rotation_deg,
+    );
+    let stroke = t.stroke_mm.max(0.0);
+    let dirty: Vec<bool> = chars
+        .iter()
+        .map(|c| {
+            c.segments
+                .iter()
+                .any(|seg| segment_hits_keepouts(*seg, stroke, keepouts))
+        })
+        .collect();
+    if dirty.iter().all(|d| !*d) {
+        return Ok(vec![m]);
+    }
+    let min_size = if m.layer.plots { 0.8 } else { 0.5 };
+    let mut out = Vec::new();
+    let n = chars.len();
+    let mut i = 0;
+    while i < n {
+        if !dirty[i] && chars[i].segments.is_empty() {
+            i += 1;
+            continue;
+        }
+        if dirty[i] {
+            for seg in &chars[i].segments {
+                for piece in clip_segment(*seg, stroke, keepouts, MIN_TEXT_PIECE_MM) {
+                    out.push(overlay_segment(
+                        m.group_kind,
+                        m.layer,
+                        stroke,
+                        m.tag.clone(),
+                        piece[0][0],
+                        piece[0][1],
+                        piece[1][0],
+                        piece[1][1],
+                    ));
+                }
+            }
+            i += 1;
+            continue;
+        }
+        let start = i;
+        while i < n && !dirty[i] {
+            i += 1;
+        }
+        let run = t.body[chars[start].byte_start..chars[i - 1].byte_end].trim();
+        if run.is_empty() {
+            continue;
+        }
+        let mut min_x = f64::INFINITY;
+        let mut max_x = f64::NEG_INFINITY;
+        let mut min_y = f64::INFINITY;
+        let mut max_y = f64::NEG_INFINITY;
+        for ch in &chars[start..i] {
+            for seg in &ch.segments {
+                for p in seg {
+                    min_x = min_x.min(p[0]);
+                    max_x = max_x.max(p[0]);
+                    min_y = min_y.min(p[1]);
+                    max_y = max_y.max(p[1]);
+                }
+            }
+        }
+        if !min_x.is_finite() {
+            continue;
+        }
+        // Remaining glyphs stay BoardText, re-centred on their ink so KiCad's
+        // HA/VA centre matches this layout (do not pad with spaces).
+        let item = crate::silk::text_on_layer(
+            run,
+            (min_x + max_x) / 2.0,
+            (min_y + max_y) / 2.0,
+            m.layer.id,
+            t.mirrored,
+            Some(t.size_mm),
+            Some(t.rotation_deg),
+            min_size,
+        )?;
+        out.push(ShapeMade {
+            kind: "text",
+            group_kind: m.group_kind,
+            layer: m.layer,
+            stroke_mm: stroke,
+            tag: m.tag.clone(),
+            item,
+        });
+    }
+    Ok(out)
+}
+
+fn segment_hits_keepouts(seg: [[f64; 2]; 2], stroke: f64, keepouts: &[Keepout]) -> bool {
+    let orig = hypot(seg[1][0] - seg[0][0], seg[1][1] - seg[0][1]);
+    if orig < HIT_EPS_MM {
+        return false;
+    }
+    let kept: f64 = clip_segment(seg, stroke, keepouts, 0.0)
+        .iter()
+        .map(|p| hypot(p[1][0] - p[0][0], p[1][1] - p[0][1]))
+        .sum();
+    orig - kept > 0.02
 }
 
 fn item_centerlines(m: &ShapeMade) -> Result<Vec<[[f64; 2]; 2]>, String> {
@@ -424,23 +537,29 @@ fn circle_edges(x: f64, y: f64, r: f64, n: usize) -> Vec<[[f64; 2]; 2]> {
     closed_edges(&pts)
 }
 
-fn clip_segment(seg: [[f64; 2]; 2], stroke: f64, keepouts: &[Keepout]) -> Vec<[[f64; 2]; 2]> {
+fn clip_segment(
+    seg: [[f64; 2]; 2],
+    stroke: f64,
+    keepouts: &[Keepout],
+    min_piece: f64,
+) -> Vec<[[f64; 2]; 2]> {
     let a = seg[0];
     let b = seg[1];
     let len = hypot(b[0] - a[0], b[1] - a[1]);
     if len < HIT_EPS_MM {
         return Vec::new();
     }
-    let grow = SILK_TO_PAD_MM + stroke / 2.0 + CLIP_SLACK_MM;
+    let grow_cu = SILK_TO_PAD_MM + stroke / 2.0 + CLIP_SLACK_MM;
+    let grow_dr = SILK_TO_HOLE_MM + stroke / 2.0 + CLIP_SLACK_MM;
     let mut blocked: Vec<(f64, f64)> = Vec::new();
     for k in keepouts {
         if let Some(copper) = k.copper {
-            if let Some(iv) = segment_aabb_t(a, b, copper.expand(grow)) {
+            if let Some(iv) = segment_aabb_t(a, b, copper.expand(grow_cu)) {
                 blocked.push(iv);
             }
         }
         if let Some((x, y, r)) = k.drill {
-            if let Some(iv) = segment_circle_t(a, b, x, y, r + grow) {
+            if let Some(iv) = segment_circle_t(a, b, x, y, r + grow_dr) {
                 blocked.push(iv);
             }
         }
@@ -451,7 +570,7 @@ fn clip_segment(seg: [[f64; 2]; 2], stroke: f64, keepouts: &[Keepout]) -> Vec<[[
         let p0 = lerp(a, b, t0);
         let p1 = lerp(a, b, t1);
         let plen = hypot(p1[0] - p0[0], p1[1] - p0[1]);
-        if plen + HIT_EPS_MM >= MIN_PIECE_MM {
+        if plen + HIT_EPS_MM >= min_piece {
             out.push([p0, p1]);
         }
     }
@@ -575,6 +694,16 @@ fn keepouts_for_silk(pads: &[PadRow], silk_is_back: bool) -> Vec<Keepout> {
         .collect()
 }
 
+fn via_keepouts(vias: &[ViaHole]) -> Vec<Keepout> {
+    vias.iter()
+        .filter(|v| v.drill_mm > 0.0 && v.x_mm.is_finite() && v.y_mm.is_finite())
+        .map(|v| Keepout {
+            copper: None,
+            drill: Some((v.x_mm, v.y_mm, v.drill_mm / 2.0)),
+        })
+        .collect()
+}
+
 fn pad_faces_silk(pad: &PadRow, silk_is_back: bool) -> bool {
     if pad.kind == "pth" || pad.kind == "npth" || pad.drill_mm.is_some() {
         return true;
@@ -677,21 +806,6 @@ fn rotated_rect_aabb(x: f64, y: f64, w: f64, h: f64, rot_deg: f64) -> BoxMm {
     }
 }
 
-fn filled_hits_keepout(ink: BoxMm, extra: f64, k: &Keepout) -> bool {
-    let grow = SILK_TO_PAD_MM + extra;
-    if let Some(copper) = k.copper {
-        if ink.overlaps(copper.expand(grow)) {
-            return true;
-        }
-    }
-    if let Some((x, y, r)) = k.drill {
-        if dist_aabb_point(ink, x, y) < r + grow - HIT_EPS_MM {
-            return true;
-        }
-    }
-    false
-}
-
 fn ring_hits_keepout(cx: f64, cy: f64, r: f64, stroke: f64, k: &Keepout) -> bool {
     let hs = stroke / 2.0;
     let inner = (r - hs - SILK_TO_PAD_MM).max(0.0);
@@ -705,7 +819,9 @@ fn ring_hits_keepout(cx: f64, cy: f64, r: f64, stroke: f64, k: &Keepout) -> bool
         let d = hypot(cx - x, cy - y);
         let dmin = (d - hr).max(0.0);
         let dmax = d + hr;
-        if dmin <= outer + HIT_EPS_MM && dmax >= inner - HIT_EPS_MM {
+        let inner_h = (r - hs - SILK_TO_HOLE_MM).max(0.0);
+        let outer_h = r + hs + SILK_TO_HOLE_MM;
+        if dmin <= outer_h + HIT_EPS_MM && dmax >= inner_h - HIT_EPS_MM {
             return true;
         }
     }
@@ -788,7 +904,7 @@ fn clip_spec(spec: &ShapeSpec, pads: &[PadRow]) -> Result<Vec<ShapeMade>, String
         apply_reference(&mut spec, &of_ref, None)?;
     }
     let made = crate::graphics::shape_items(&spec)?;
-    clip_plotting_silk(made, pads)
+    clip_plotting_silk_holes(made, pads, &[])
 }
 
 #[cfg(test)]
@@ -873,25 +989,36 @@ mod tests {
                 &front
             };
             if m.kind == "text" {
-                let (x, y, size, body) = crate::silk::text_metrics_from_any(&m.item).unwrap();
-                let n = body.chars().count().max(1) as f64;
-                let ink = BoxMm::from_center(x, y, (n * size * 0.9).max(size), size);
-                assert!(
-                    !kos.iter().any(|k| filled_hits_keepout(ink, 0.0, k)),
-                    "text {:?} still on a pad",
-                    body
+                let t = crate::silk::overlay_text_from_any(&m.item).unwrap();
+                let chars = crate::silk_stroke::layout_chars(
+                    &t.body,
+                    t.size_mm,
+                    t.x_mm,
+                    t.y_mm,
+                    t.mirrored,
+                    t.rotation_deg,
                 );
+                for ch in chars {
+                    for seg in ch.segments {
+                        assert!(
+                            !segment_hits_keepouts(seg, t.stroke_mm, kos),
+                            "text {:?} still on a pad/hole",
+                            t.body
+                        );
+                    }
+                }
                 continue;
             }
             let edges = item_centerlines(m).unwrap();
             for edge in edges {
                 assert!(
                     !kos.iter().any(|k| {
-                        let grow = SILK_TO_PAD_MM + m.stroke_mm / 2.0;
+                        let grow_cu = SILK_TO_PAD_MM + m.stroke_mm / 2.0;
+                        let grow_dr = SILK_TO_HOLE_MM + m.stroke_mm / 2.0;
                         k.copper.is_some_and(|c| {
-                            segment_aabb_t(edge[0], edge[1], c.expand(grow)).is_some()
+                            segment_aabb_t(edge[0], edge[1], c.expand(grow_cu)).is_some()
                         }) || k.drill.is_some_and(|(x, y, r)| {
-                            segment_circle_t(edge[0], edge[1], x, y, r + grow).is_some()
+                            segment_circle_t(edge[0], edge[1], x, y, r + grow_dr).is_some()
                         })
                     }),
                     "clipped stroke still hits a pad/hole"
@@ -1071,12 +1198,13 @@ mod tests {
     }
 
     #[test]
-    fn silk_text_on_own_pad_is_omitted() {
+    fn silk_text_on_own_pad_is_punched() {
+        // Cell centre sits on U1 pin 4 copper so the letters hit a pad.
         let spec = ShapeSpec {
             kind: "table".into(),
             layer: Some("F.Silkscreen".into()),
-            origin_x_mm: Some(126.0),
-            origin_y_mm: Some(33.0),
+            origin_x_mm: Some(131.0875 - 4.0),
+            origin_y_mm: Some(36.04 - 2.5),
             rows: Some(1),
             cols: Some(1),
             cell_width_mm: Some(8.0),
@@ -1087,11 +1215,239 @@ mod tests {
             ..Default::default()
         };
         let made = clip_spec(&spec, &u1_pads()).unwrap();
+        let bodies: Vec<_> = made
+            .iter()
+            .filter(|m| m.kind == "text")
+            .filter_map(|m| crate::silk::text_body_from_any(&m.item))
+            .collect();
         assert!(
-            made.iter().all(|m| m.kind != "text"),
-            "cell on a pad should be omitted"
+            bodies.iter().all(|b| b != "U1"),
+            "U1 on pad copper must not stay one BoardText: {bodies:?}"
         );
         assert!(!made.is_empty());
         assert_silk_clear(&made, &u1_pads());
+    }
+
+    fn via_on_letter(body: &str, x: f64, y: f64, mirrored: bool, ch: char) -> ViaHole {
+        let chars = crate::silk_stroke::layout_chars(body, 1.0, x, y, mirrored, 0.0);
+        let ink = chars.iter().find(|c| c.ch == ch).expect("letter in layout");
+        let n = ink.segments.len() as f64;
+        let (sx, sy) = ink.segments.iter().fold((0.0, 0.0), |acc, s| {
+            (acc.0 + s[0][0] + s[1][0], acc.1 + s[0][1] + s[1][1])
+        });
+        ViaHole {
+            x_mm: sx / (2.0 * n),
+            y_mm: sy / (2.0 * n),
+            drill_mm: 0.3,
+        }
+    }
+
+    #[test]
+    fn via_drill_gaps_back_silk() {
+        let via = ViaHole {
+            x_mm: 10.0,
+            y_mm: 10.0,
+            drill_mm: 0.3,
+        };
+        let spec = ShapeSpec {
+            kind: "line".into(),
+            layer: Some("B.Silkscreen".into()),
+            a_x_mm: Some(0.0),
+            a_y_mm: Some(10.0),
+            b_x_mm: Some(20.0),
+            b_y_mm: Some(10.0),
+            ..Default::default()
+        };
+        let made = crate::graphics::shape_items(&spec).unwrap();
+        let made = clip_plotting_silk_holes(made, &[], &[via]).unwrap();
+        assert!(
+            made.len() >= 2,
+            "expected a gap at the via, got {} piece(s)",
+            made.len()
+        );
+        let grow = SILK_TO_HOLE_MM + 0.15 / 2.0;
+        for m in &made {
+            for edge in item_centerlines(m).unwrap() {
+                assert!(
+                    segment_circle_t(edge[0], edge[1], 10.0, 10.0, 0.15 + grow).is_none(),
+                    "clipped stroke still hits the via drill"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn silk_text_on_via_is_punched_not_deleted() {
+        let spec = ShapeSpec {
+            kind: "table".into(),
+            layer: Some("B.Silkscreen".into()),
+            origin_x_mm: Some(20.0),
+            origin_y_mm: Some(20.0),
+            rows: Some(1),
+            cols: Some(1),
+            cell_width_mm: Some(16.0),
+            cell_height_mm: Some(6.0),
+            tag: Some("via-txt".into()),
+            cells: vec![vec!["HELLO VIA".into()]],
+            size_mm: Some(1.0),
+            ..Default::default()
+        };
+        let made = crate::graphics::shape_items(&spec).unwrap();
+        let t = made
+            .iter()
+            .find(|m| m.kind == "text")
+            .and_then(|m| crate::silk::overlay_text_from_any(&m.item))
+            .expect("table cell text");
+        let via = via_on_letter(&t.body, t.x_mm, t.y_mm, t.mirrored, 'V');
+        let made = clip_plotting_silk_holes(made, &[], &[via]).unwrap();
+        assert!(
+            made.iter().any(|m| m.kind == "text"),
+            "clear letters should stay BoardText"
+        );
+        let bodies: Vec<_> = made
+            .iter()
+            .filter(|m| m.kind == "text")
+            .filter_map(|m| crate::silk::text_body_from_any(&m.item))
+            .collect();
+        assert!(
+            bodies.iter().all(|b| !b.contains("VIA")),
+            "letter on the via must not remain as a whole BoardText: {bodies:?}"
+        );
+        assert!(
+            made.iter().any(|m| m.kind == "segment"),
+            "the via letter should become stroked fragments"
+        );
+        let grow = SILK_TO_HOLE_MM + 0.15 / 2.0;
+        for m in &made {
+            if m.kind == "text" {
+                let t = crate::silk::overlay_text_from_any(&m.item).unwrap();
+                for ch in crate::silk_stroke::layout_chars(
+                    &t.body,
+                    t.size_mm,
+                    t.x_mm,
+                    t.y_mm,
+                    t.mirrored,
+                    t.rotation_deg,
+                ) {
+                    for seg in ch.segments {
+                        assert!(
+                            segment_circle_t(seg[0], seg[1], via.x_mm, via.y_mm, 0.15 + grow)
+                                .is_none(),
+                            "kept text still hits the via"
+                        );
+                    }
+                }
+            } else if m.kind == "segment" {
+                for edge in item_centerlines(m).unwrap() {
+                    assert!(
+                        segment_circle_t(edge[0], edge[1], via.x_mm, via.y_mm, 0.15 + grow)
+                            .is_none(),
+                        "punched stroke still hits the via"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn silk_letter_p_descender_on_via_is_punched() {
+        let x = 10.0;
+        let y = 20.0;
+        let layer = crate::graphics::parse_graphic_layer(Some("F.Silkscreen")).unwrap();
+        let item = crate::silk::text_on_layer("pads", x, y, layer.id, false, Some(1.0), None, 0.8)
+            .unwrap();
+        let made = vec![ShapeMade {
+            kind: "text",
+            group_kind: "text",
+            layer,
+            stroke_mm: 0.15,
+            tag: None,
+            item,
+        }];
+        let chars = crate::silk_stroke::layout_chars("pads", 1.0, x, y, false, 0.0);
+        let p = chars.iter().find(|c| c.ch == 'p').expect("p");
+        let [vx, vy] = p
+            .segments
+            .iter()
+            .flat_map(|s| [s[0], s[1]])
+            .min_by(|a, b| a[1].partial_cmp(&b[1]).unwrap())
+            .expect("p descender");
+        let via = ViaHole {
+            x_mm: vx,
+            y_mm: vy,
+            drill_mm: 0.3,
+        };
+        let made = clip_plotting_silk_holes(made, &[], &[via]).unwrap();
+        let bodies: Vec<_> = made
+            .iter()
+            .filter(|m| m.kind == "text")
+            .filter_map(|m| crate::silk::text_body_from_any(&m.item))
+            .collect();
+        assert!(
+            bodies.iter().all(|b| !b.contains('p')),
+            "p descender on a via must be gapped: {bodies:?}"
+        );
+        assert!(
+            bodies.iter().any(|b| b.contains("ads") || b.contains('a')),
+            "the rest of 'pads' should stay BoardText: {bodies:?}"
+        );
+        assert!(made.iter().any(|m| m.kind == "segment"));
+    }
+
+    #[test]
+    fn comments_text_on_via_is_not_punched() {
+        let layer = crate::graphics::parse_graphic_layer(Some("Cmts.User")).unwrap();
+        let item = crate::silk::text_on_layer("VIA", 0.0, 0.0, layer.id, false, Some(1.0), None, 0.5)
+            .unwrap();
+        let made = vec![ShapeMade {
+            kind: "text",
+            group_kind: "text",
+            layer,
+            stroke_mm: 0.15,
+            tag: None,
+            item,
+        }];
+        let via = ViaHole {
+            x_mm: 0.0,
+            y_mm: 0.0,
+            drill_mm: 0.3,
+        };
+        let made = clip_plotting_silk_holes(made, &[], &[via]).unwrap();
+        assert_eq!(made.len(), 1);
+        assert_eq!(made[0].kind, "text");
+        assert_eq!(
+            crate::silk::text_body_from_any(&made[0].item).as_deref(),
+            Some("VIA")
+        );
+    }
+
+    #[test]
+    fn silk_text_clear_of_via_stays_boardtext() {
+        let via = ViaHole {
+            x_mm: 0.0,
+            y_mm: 0.0,
+            drill_mm: 0.3,
+        };
+        let spec = ShapeSpec {
+            kind: "table".into(),
+            layer: Some("B.Silkscreen".into()),
+            origin_x_mm: Some(20.0),
+            origin_y_mm: Some(20.0),
+            rows: Some(1),
+            cols: Some(1),
+            cell_width_mm: Some(8.0),
+            cell_height_mm: Some(6.0),
+            tag: Some("clear-txt".into()),
+            cells: vec![vec!["OK".into()]],
+            size_mm: Some(1.0),
+            ..Default::default()
+        };
+        let made = crate::graphics::shape_items(&spec).unwrap();
+        let made = clip_plotting_silk_holes(made, &[], &[via]).unwrap();
+        assert_eq!(
+            made.iter().filter(|m| m.kind == "text").count(),
+            1,
+            "clear text must stay one BoardText"
+        );
     }
 }

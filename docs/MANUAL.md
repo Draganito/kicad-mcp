@@ -262,12 +262,13 @@ mechanical cover on the LEDs or a datasheet next to a part.
   that footprint's **package body** (JLCPCB `L3.5-W3.5` or EIA `R0603` at
   the footprint origin — not the copper pad envelope, and not F.CrtYd,
   which often includes silk text). Omit origin/width. Plotting silk is then
-  **gapped** at pads and holes
-  (0.15 mm + half stroke) so the body outline can cross pads.
+  **gapped** at pads, holes, and via drills
+  (0.15 mm pad / 0.18 mm hole + half stroke) so the body outline can cross pads.
 - Plotting silk (`F.Silkscreen` / `B.Silkscreen`) is **not refused** when
-  a stroke crosses a pad. The line is interrupted with JLCPCB clearance.
-  Front silk vs `F.Cu`, back silk vs `B.Cu`, PTH/NPTH holes on both.
-  Cell text that sits on a pad is omitted. Refused only if nothing remains.
+  a stroke crosses a pad, hole, or via. The line is interrupted with JLCPCB
+  clearance. Front silk vs `F.Cu`, back silk vs `B.Cu`, PTH/NPTH holes and
+  via drills on both. A letter on a hole is gapped (character void); the rest
+  of the line stays BoardText. Refused only if nothing remains.
   `Cmts.User` / other user layers are not checked.
 - Circle: `x_mm` / `y_mm` plus `radius_mm` or `diameter_mm`.
 - Polygon: `points: [{x_mm, y_mm}, …]` (closed automatically, max 400).

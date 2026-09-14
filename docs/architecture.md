@@ -76,11 +76,13 @@ outer rectangle plus inner segments (shared edges are not doubled).
 on the same layer and need a tag so the group holds grid + text. On
 B.Silkscreen the matrix is mapped onto the flipped back (do not reverse
 it in the caller). `kind: line` is an open segment (board millimetres,
-not flipped). Plotting silk (`F.Silkscreen` / `B.Silkscreen`) is **gapped**
-where the stroke would sit on a same-side copper pad or a hole (JLCPCB
-0.15 mm + half stroke) — the outline is not refused. Front silk vs `F.Cu`,
-back silk vs `B.Cu`, PTH/NPTH holes on both. Cell text on a pad is omitted.
-Refused only if nothing remains. User layers are not checked. `kind: rect`
+not flipped). Plotting silk (`F.Silkscreen` / `B.Silkscreen`) is **punched**
+where the stroke would sit on a same-side copper pad (JLCPCB 0.15 mm), a
+hole, or a via drill (0.18 mm + half stroke) — the outline is not refused.
+Front silk vs `F.Cu`, back silk vs `B.Cu`, PTH/NPTH holes and via drills on
+both. Cell text is the KiCad stroke font: a letter on a hole is gapped, the
+rest of the line stays BoardText. Refused only if nothing remains. User
+layers are not checked. `kind: rect`
 + `reference` (e.g. `"U1"`) draws the package body (JLCPCB `L…-W…` / EIA
 size at the footprint origin), then clips
 the pads. `get_shapes` also lists grouped overlay texts (`kind: text`)
